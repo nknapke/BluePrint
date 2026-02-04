@@ -1,6 +1,8 @@
 // RecordsTab.js
 import { useMemo, useState, useCallback } from "react";
 
+const EMPTY_SET = new Set();
+
 /** ----------------------------- Helpers ----------------------------- */
 
 function prettyTitle(s) {
@@ -781,7 +783,10 @@ export default function RecordsTab({
     }
   }, []);
 
-  const expanded = expandedByView[viewMode] || new Set();
+  const expanded = useMemo(
+    () => expandedByView[viewMode] || EMPTY_SET,
+    [expandedByView, viewMode]
+  );
 
   const setExpanded = useCallback(
     (updater) => {

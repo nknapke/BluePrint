@@ -1,5 +1,7 @@
 import { useMemo } from "react";
 
+const EMPTY_ARRAY = [];
+
 function prettyDate(iso) {
   const d = new Date(`${iso}T00:00:00`);
   return d.toLocaleDateString(undefined, {
@@ -15,10 +17,10 @@ function prettyDept(s) {
 }
 
 export default function CrewSchedulesDayView({ S, roster, dateISO, search }) {
-  const crew = roster?.crew ?? [];
   const savePaused = !!roster?.savePaused;
 
   const filteredCrew = useMemo(() => {
+    const crew = roster?.crew ?? EMPTY_ARRAY;
     const q = String(search || "")
       .toLowerCase()
       .trim();
@@ -28,7 +30,7 @@ export default function CrewSchedulesDayView({ S, roster, dateISO, search }) {
       const dept = String(c.home_department || "").toLowerCase();
       return name.includes(q) || dept.includes(q);
     });
-  }, [crew, search]);
+  }, [roster?.crew, search]);
 
   const grouped = useMemo(() => {
     const map = new Map();

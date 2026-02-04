@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 
+const EMPTY_ARRAY = [];
+
 /** ---------- date helpers ---------- */
 function iso(d) {
   if (!d) return "";
@@ -40,7 +42,6 @@ export default function CrewSchedulesGrid({
   setSearch,
   weekLabel,
 }) {
-  const crew = roster?.crew ?? [];
   const loading = !!(roster?.crewLoading || roster?.assignLoading);
   const err = roster?.crewError || roster?.assignError || "";
   const savePaused = !!roster?.savePaused;
@@ -61,6 +62,7 @@ export default function CrewSchedulesGrid({
   );
 
   const filteredCrew = useMemo(() => {
+    const crew = roster?.crew ?? EMPTY_ARRAY;
     const q = String(search || "")
       .trim()
       .toLowerCase();
@@ -70,7 +72,7 @@ export default function CrewSchedulesGrid({
       const dept = String(c.home_department || "").toLowerCase();
       return name.includes(q) || dept.includes(q);
     });
-  }, [crew, search]);
+  }, [roster?.crew, search]);
 
   const grouped = useMemo(() => {
     const map = new Map();
