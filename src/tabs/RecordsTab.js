@@ -1,0 +1,1426 @@
+// RecordsTab.js
+import { useMemo, useState, useCallback } from "react";
+
+/** ----------------------------- Helpers ----------------------------- */
+
+function prettyTitle(s) {
+  const raw = String(s || "").trim();
+  if (!raw) return "";
+  const spaced = raw.replace(/_/g, " ").toLowerCase();
+  return spaced.replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function daysText(r) {
+  if (!r.lastCompleted) return "Not completed";
+  if (!r.dueDate) return "Never expires";
+
+  if (r.status === "Training Overdue") {
+    const n = Number(r.daysOverdue ?? 0);
+    if (!Number.isFinite(n) || n <= 0) return "Overdue";
+    return n === 1 ? "Overdue by 1 day" : `Overdue by ${n} days`;
+  }
+
+  const n = Number(r.daysUntilDue);
+  if (!Number.isFinite(n)) return "Due soon";
+  if (n === 0) return "Due today";
+  return n === 1 ? "Due in 1 day" : `Due in ${n} days`;
+}
+
+function statusLabel(r) {
+  if (!r.lastCompleted) return "Not completed";
+  if (!r.dueDate) return "Never expires";
+  if (r.status === "Training Overdue") return "Overdue";
+  if (r.status === "Training Due") return "Due soon";
+  return "Complete";
+}
+
+function statusTone(r) {
+  const s = statusLabel(r);
+  if (s === "Overdue") return "danger";
+  if (s === "Due soon") return "warn";
+  if (s === "Not completed") return "muted";
+  if (s === "Never expires") return "muted2";
+  return "good";
+}
+
+function rankRecord(r) {
+  const s = statusLabel(r);
+  if (s === "Overdue") return 0;
+  if (s === "Due soon") return 1;
+  if (s === "Not completed") return 2;
+  if (s === "Never expires") return 3;
+  return 4;
+}
+
+/** ----------------------------- UI bits ----------------------------- */
+
+function Pill({ tone, text }) {
+  const base = {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "6px 10px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 750,
+    letterSpacing: "-0.01em",
+    border: "1px solid rgba(255,255,255,0.10)",
+    userSelect: "none",
+    whiteSpace: "nowrap",
+  };
+
+  const tones = {
+    danger: {
+      background: "rgba(255, 59, 48, 0.14)",
+      color: "rgba(255,210,208,0.95)",
+      border: "1px solid rgba(255,59,48,0.28)",
+    },
+    warn: {
+      background: "rgba(255, 204, 0, 0.12)",
+      color: "rgba(255,240,200,0.95)",
+      border: "1px solid rgba(255,204,0,0.30)",
+    },
+    good: {
+      background: "rgba(52,199,89,0.12)",
+      color: "rgba(214,255,226,0.95)",
+      border: "1px solid rgba(52,199,89,0.30)",
+    },
+    muted: {
+      background: "rgba(255,255,255,0.06)",
+      color: "rgba(255,255,255,0.82)",
+      border: "1px solid rgba(255,255,255,0.10)",
+    },
+    muted2: {
+      background: "rgba(255,255,255,0.04)",
+      color: "rgba(255,255,255,0.72)",
+      border: "1px solid rgba(255,255,255,0.10)",
+    },
+  };
+
+  return (
+    <span style={{ ...base, ...(tones[tone] || tones.muted) }}>{text}</span>
+  );
+}
+
+function Chevron({ open, size = 26 }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 10,
+        display: "grid",
+        placeItems: "center",
+        border: "1px solid rgba(255,255,255,0.10)",
+        background: "rgba(255,255,255,0.06)",
+        transform: open ? "rotate(90deg)" : "rotate(0deg)",
+        transition: "transform 160ms ease",
+        lineHeight: 1,
+        fontSize: 18,
+        fontWeight: 900,
+        opacity: 0.9,
+        flex: "0 0 auto",
+      }}
+    >
+      ›
+    </span>
+  );
+}
+
+function DotCount({ color, count, title }) {
+  return (
+    <span
+      title={title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 7,
+        padding: "6px 10px",
+        borderRadius: 999,
+        border: "1px solid rgba(255,255,255,0.10)",
+        background: "rgba(255,255,255,0.04)",
+        fontSize: 12,
+        fontWeight: 800,
+        color: "rgba(255,255,255,0.88)",
+        whiteSpace: "nowrap",
+        opacity: count === 0 ? 0.6 : 1,
+      }}
+    >
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          background: color,
+          boxShadow: "0 0 0 3px rgba(255,255,255,0.06)",
+          opacity: count === 0 ? 0.55 : 1,
+        }}
+      />
+      {count}
+    </span>
+  );
+}
+
+function applyPressScale(e, scale = 0.99) {
+  e.currentTarget.style.transform = `scale(${scale})`;
+  setTimeout(() => {
+    if (e.currentTarget) e.currentTarget.style.transform = "scale(1)";
+  }, 120);
+}
+
+function applyHoverLift(
+  e,
+  { open, liftPx, hoverShadow, openShadow, closedShadow }
+) {
+  e.currentTarget.style.transform = `translateY(-${liftPx}px) scale(1.01)`;
+  e.currentTarget.style.boxShadow = hoverShadow;
+  e.currentTarget.dataset._open = open ? "1" : "0";
+  e.currentTarget.dataset._openShadow = openShadow;
+  e.currentTarget.dataset._closedShadow = closedShadow;
+}
+
+function clearHoverLift(e) {
+  const open = e.currentTarget.dataset._open === "1";
+  e.currentTarget.style.transform = "translateY(0) scale(1)";
+  e.currentTarget.style.boxShadow = open
+    ? e.currentTarget.dataset._openShadow
+    : e.currentTarget.dataset._closedShadow;
+}
+
+function GroupHeader({
+  variant = "top",
+  title,
+  subtitle,
+  open,
+  onToggle,
+  counts,
+}) {
+  const overdue = counts?.overdue ?? 0;
+  const due = counts?.due ?? 0;
+  const complete = counts?.complete ?? 0;
+  const inactive = counts?.inactive ?? 0;
+
+  const isTop = variant === "top";
+
+  const liftPx = 2;
+  const hoverShadow = isTop
+    ? "0 28px 64px rgba(0,0,0,0.38)"
+    : "0 22px 54px rgba(0,0,0,0.30)";
+  const openShadow = isTop
+    ? "0 18px 46px rgba(0,0,0,0.28)"
+    : "0 14px 34px rgba(0,0,0,0.18)";
+  const closedShadow = isTop
+    ? "0 12px 30px rgba(0,0,0,0.18)"
+    : "0 10px 24px rgba(0,0,0,0.14)";
+
+  const radius = isTop ? 18 : 16;
+  const pad = isTop ? "14px 14px" : "12px 12px";
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      onMouseEnter={(e) =>
+        applyHoverLift(e, {
+          open,
+          liftPx,
+          hoverShadow,
+          openShadow,
+          closedShadow,
+        })
+      }
+      onMouseLeave={clearHoverLift}
+      onMouseDown={(e) => applyPressScale(e, isTop ? 0.99 : 0.992)}
+      style={{
+        width: "100%",
+        cursor: "pointer",
+        userSelect: "none",
+        padding: pad,
+        borderRadius: radius,
+        border: open
+          ? "1px solid rgba(255,255,255,0.14)"
+          : "1px solid rgba(255,255,255,0.10)",
+        background: isTop
+          ? open
+            ? "linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.12) 100%)"
+            : "rgba(0,0,0,0.16)"
+          : open
+          ? "rgba(255,255,255,0.06)"
+          : "rgba(0,0,0,0.12)",
+        boxShadow: open ? openShadow : closedShadow,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        color: "rgba(255,255,255,0.92)",
+        textAlign: "left",
+        transition:
+          "transform 180ms ease, box-shadow 220ms ease, background 180ms ease",
+        position: "relative",
+        overflow: "hidden",
+      }}
+      aria-expanded={open}
+    >
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+          minWidth: 0,
+        }}
+      >
+        <div
+          style={{
+            fontSize: isTop ? 14 : 13,
+            fontWeight: 900,
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {title}
+        </div>
+        <div style={{ fontSize: 12, fontWeight: 750, opacity: 0.62 }}>
+          {isTop ? subtitle : "Details"}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <DotCount
+            color="rgba(255,59,48,0.90)"
+            count={overdue}
+            title={`Overdue: ${overdue}`}
+          />
+          <DotCount
+            color="rgba(255,204,0,0.90)"
+            count={due}
+            title={`Due soon: ${due}`}
+          />
+          <DotCount
+            color="rgba(52,199,89,0.90)"
+            count={complete}
+            title={`Complete: ${complete}`}
+          />
+          <DotCount
+            color="rgba(142,142,147,0.85)"
+            count={inactive}
+            title={`Inactive: ${inactive}`}
+          />
+        </div>
+        <Chevron open={open} size={isTop ? 26 : 24} />
+      </div>
+    </button>
+  );
+}
+
+function StatCard({ label, value, tone, selected, onClick }) {
+  const tones = {
+    danger: "rgba(255,59,48,0.10)",
+    warn: "rgba(255,204,0,0.08)",
+    good: "rgba(52,199,89,0.08)",
+    muted: "rgba(255,255,255,0.06)",
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        flex: "1 1 170px",
+        padding: 12,
+        borderRadius: 16,
+        border: selected
+          ? "1px solid rgba(0,122,255,0.55)"
+          : "1px solid rgba(255,255,255,0.10)",
+        background: selected
+          ? "linear-gradient(180deg, rgba(0,122,255,0.18) 0%, rgba(255,255,255,0.06) 100%)"
+          : tones[tone] || tones.muted,
+        boxShadow: selected
+          ? "0 18px 40px rgba(0,122,255,0.18)"
+          : "0 14px 34px rgba(0,0,0,0.18)",
+        color: "rgba(255,255,255,0.92)",
+        cursor: "pointer",
+        textAlign: "left",
+        transition:
+          "transform 120ms ease, box-shadow 160ms ease, background 160ms ease",
+      }}
+      onMouseDown={(e) => applyPressScale(e, 0.98)}
+      title="Click to filter"
+    >
+      <div
+        style={{
+          fontSize: 12,
+          opacity: 0.78,
+          fontWeight: 700,
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 850, letterSpacing: -0.3 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 12, opacity: 0.65, marginTop: 6 }}>
+        {selected ? "Filtering" : "Tap to filter"}
+      </div>
+    </button>
+  );
+}
+
+function Chip({ text, onClear }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "7px 10px",
+        borderRadius: 999,
+        border: "1px solid rgba(255,255,255,0.10)",
+        background: "rgba(255,255,255,0.05)",
+        color: "rgba(255,255,255,0.88)",
+        fontSize: 12,
+        fontWeight: 800,
+        userSelect: "none",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span style={{ opacity: 0.92 }}>{text}</span>
+      <button
+        type="button"
+        onClick={onClear}
+        style={{
+          width: 20,
+          height: 20,
+          borderRadius: 999,
+          border: "1px solid rgba(255,255,255,0.12)",
+          background: "rgba(0,0,0,0.18)",
+          color: "rgba(255,255,255,0.88)",
+          cursor: "pointer",
+          fontWeight: 900,
+          lineHeight: 1,
+          display: "grid",
+          placeItems: "center",
+        }}
+        title="Clear"
+      >
+        ×
+      </button>
+    </span>
+  );
+}
+
+// Keep this Segmented (uses applyPressScale) and do not define another one
+function Segmented({ value, onChange, options }) {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        padding: 4,
+        borderRadius: 14,
+        border: "1px solid rgba(255,255,255,0.10)",
+        background: "rgba(0,0,0,0.18)",
+        boxShadow: "0 12px 30px rgba(0,0,0,0.16)",
+      }}
+    >
+      {options.map((o) => {
+        const active = value === o.value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            style={{
+              padding: "8px 12px",
+              borderRadius: 12,
+              border: "1px solid transparent",
+              background: active
+                ? "linear-gradient(180deg, rgba(0,122,255,0.20) 0%, rgba(255,255,255,0.06) 100%)"
+                : "transparent",
+              color: active
+                ? "rgba(255,255,255,0.95)"
+                : "rgba(255,255,255,0.82)",
+              fontSize: 12,
+              fontWeight: 900,
+              letterSpacing: "-0.01em",
+              cursor: "pointer",
+              transition: "background 160ms ease, transform 120ms ease",
+              whiteSpace: "nowrap",
+            }}
+            onMouseDown={(e) => applyPressScale(e, 0.98)}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function RecordRow({
+  S,
+  r,
+  markRecordComplete,
+  openHistory,
+  isFirst,
+  isLast,
+  titleMode,
+}) {
+  const tone = statusTone(r);
+  const label = statusLabel(r);
+
+  const mainTitle = titleMode === "crewView" ? r.trainingName : r.crewName;
+
+  const secondary =
+    titleMode === "crewView"
+      ? `Due: ${r.dueDate || "—"} · Last: ${r.lastCompleted || "—"}`
+      : `Crew: ${r.crewName || "—"} · Due: ${r.dueDate || "—"} · Last: ${
+          r.lastCompleted || "—"
+        }`;
+
+  const hoverLift = (e) => {
+    e.currentTarget.style.transform = "translateY(-1px)";
+    e.currentTarget.style.boxShadow = "0 12px 26px rgba(0,0,0,0.22)";
+    e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+  };
+
+  const hoverOff = (e) => {
+    e.currentTarget.style.transform = "translateY(0)";
+    e.currentTarget.style.boxShadow = "none";
+    e.currentTarget.style.background = "transparent";
+  };
+
+  return (
+    <div
+      onMouseEnter={hoverLift}
+      onMouseLeave={hoverOff}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr auto",
+        gap: 12,
+        padding: "12px 12px",
+        borderTop: isFirst ? "none" : "1px solid rgba(255,255,255,0.08)",
+        borderRadius: isFirst ? "14px 14px 0 0" : isLast ? "0 0 14px 14px" : 0,
+        background: "transparent",
+        transition:
+          "transform 140ms ease, box-shadow 180ms ease, background 160ms ease",
+        willChange: "transform",
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 13.5,
+              fontWeight: 850,
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {mainTitle}
+          </div>
+          <Pill tone={tone} text={label} />
+          <div style={S.helper}>{daysText(r)}</div>
+        </div>
+
+        <div
+          style={{ marginTop: 6, fontSize: 12, fontWeight: 700, opacity: 0.82 }}
+        >
+          <span style={{ opacity: 0.95 }}>{r.trackName}</span>
+          <span style={{ opacity: 0.55 }}> · </span>
+          <span style={{ opacity: 0.78 }}>{secondary}</span>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-end",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+          }}
+        >
+          <button
+            style={S.button("ghost")}
+            onClick={() => openHistory(r)}
+            title="View completion history"
+          >
+            History
+          </button>
+
+          <button
+            style={S.button("subtle")}
+            onClick={() => markRecordComplete(r)}
+            title="Set completed date and reset the cycle"
+          >
+            Mark Complete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** ----------------------------- Grouping ----------------------------- */
+
+function computeCounts(items) {
+  let overdue = 0;
+  let due = 0;
+  let complete = 0;
+  let inactive = 0;
+
+  for (const r of items) {
+    if (!r.active) {
+      inactive += 1;
+      continue;
+    }
+    const s = statusLabel(r);
+    if (s === "Overdue") overdue += 1;
+    else if (s === "Due soon") due += 1;
+    else complete += 1;
+  }
+
+  return { overdue, due, complete, inactive };
+}
+
+function sortGroupList(groups) {
+  const g = [...groups];
+  g.sort((a, b) => {
+    if (a.overdue !== b.overdue) return b.overdue - a.overdue;
+    if (a.due !== b.due) return b.due - a.due;
+    return String(a.title).localeCompare(String(b.title));
+  });
+  return g;
+}
+
+function sortRecords(items, tieNameField) {
+  const arr = [...items];
+  arr.sort((a, b) => {
+    const ra = rankRecord(a);
+    const rb = rankRecord(b);
+    if (ra !== rb) return ra - rb;
+
+    if (ra === 0) {
+      const ao = Number(a.daysOverdue ?? 0);
+      const bo = Number(b.daysOverdue ?? 0);
+      if (ao !== bo) return bo - ao;
+    }
+
+    if (ra === 1) {
+      const au =
+        a.daysUntilDue == null
+          ? Number.POSITIVE_INFINITY
+          : Number(a.daysUntilDue);
+      const bu =
+        b.daysUntilDue == null
+          ? Number.POSITIVE_INFINITY
+          : Number(b.daysUntilDue);
+      if (au !== bu) return au - bu;
+    }
+
+    return String(a[tieNameField] || "").localeCompare(
+      String(b[tieNameField] || "")
+    );
+  });
+  return arr;
+}
+
+const KEY_SEP = "§";
+
+function makeKey(...parts) {
+  return parts.map((p) => String(p)).join(KEY_SEP);
+}
+
+function pruneByPrefix(set, prefix) {
+  const next = new Set(set);
+  const p = String(prefix);
+  for (const k of next) {
+    if (String(k).startsWith(p)) next.delete(k);
+  }
+  return next;
+}
+
+function buildHierarchy(records, levels, leafSortTieField) {
+  const root = new Map();
+
+  for (const r of records) {
+    let cursor = root;
+    let rawPath = [];
+
+    for (let i = 0; i < levels.length; i++) {
+      const L = levels[i];
+      const rawKey = L.keyOf(r);
+      const title = L.titleOf(r);
+      const pathKey = makeKey(...rawPath, rawKey);
+
+      if (!cursor.has(rawKey)) {
+        cursor.set(rawKey, {
+          rawKey,
+          key: pathKey,
+          title,
+          map: new Map(),
+          items: [],
+        });
+      }
+
+      const node = cursor.get(rawKey);
+      if (i === levels.length - 1) node.items.push(r);
+      rawPath = [...rawPath, rawKey];
+      cursor = node.map;
+    }
+  }
+
+  const materialize = (map) => {
+    const nodes = Array.from(map.values()).map((node) => {
+      const hasChildren = node.map && node.map.size > 0;
+
+      if (!hasChildren) {
+        const items = sortRecords(node.items, leafSortTieField);
+        const counts = computeCounts(items);
+        return {
+          key: node.key,
+          title: node.title,
+          counts,
+          overdue: counts.overdue,
+          due: counts.due,
+          children: [],
+          items,
+          _allItems: items,
+        };
+      }
+
+      let children = materialize(node.map);
+      children = sortGroupList(children);
+
+      const allItems = children.flatMap((c) => c._allItems || []);
+      const counts = computeCounts(allItems);
+
+      return {
+        key: node.key,
+        title: node.title,
+        counts,
+        overdue: counts.overdue,
+        due: counts.due,
+        children,
+        items: null,
+        _allItems: allItems,
+      };
+    });
+
+    return nodes;
+  };
+
+  const roots = sortGroupList(materialize(root));
+
+  const strip = (n) => {
+    const { _allItems, ...rest } = n;
+    if (rest.children?.length) rest.children = rest.children.map(strip);
+    return rest;
+  };
+
+  return roots.map(strip);
+}
+
+/** ----------------------------- Component ----------------------------- */
+
+export default function RecordsTab({
+  S,
+  crew,
+  tracks,
+  trainings,
+  visibleTrainingRecords,
+  recordsLoading,
+  recordsError,
+  recordsCrewId,
+  setRecordsCrewId,
+  recordsTrackId,
+  setRecordsTrackId,
+  recordsTrainingId,
+  setRecordsTrainingId,
+  loadTrainingRecords,
+  markRecordComplete,
+  openHistory,
+}) {
+  const [viewMode, setViewMode] = useState("list");
+  const [q, setQ] = useState("");
+  const [statFilter, setStatFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("ACTIVE");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const [expandedByView, setExpandedByView] = useState(() => ({
+    crew: new Set(),
+    training: new Set(),
+    department: new Set(),
+    list: new Set(),
+  }));
+
+  const setViewModeSafe = useCallback((v) => {
+    setViewMode(v);
+    if (v === "list") {
+      setStatusFilter("ACTIVE");
+      setStatFilter("ALL");
+    }
+  }, []);
+
+  const expanded = expandedByView[viewMode] || new Set();
+
+  const setExpanded = useCallback(
+    (updater) => {
+      setExpandedByView((prev) => {
+        const current = prev[viewMode] || new Set();
+        const nextSet =
+          typeof updater === "function" ? updater(current) : updater;
+        return { ...prev, [viewMode]: nextSet };
+      });
+    },
+    [viewMode]
+  );
+
+  const toggleKey = useCallback(
+    (key) => {
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) {
+          next.delete(key);
+          return pruneByPrefix(next, `${key}${KEY_SEP}`);
+        }
+        next.add(key);
+        return next;
+      });
+    },
+    [setExpanded]
+  );
+
+  const baseFiltered = useMemo(() => {
+    let rows = visibleTrainingRecords;
+
+    if (statusFilter === "ACTIVE")
+      rows = rows.filter((r) => r.active !== false);
+    if (statusFilter === "INACTIVE")
+      rows = rows.filter((r) => r.active === false);
+
+    const query = (q || "").trim().toLowerCase();
+    if (!query) return rows;
+
+    return rows.filter((r) => {
+      const hay = `${r.crewName || ""} ${r.trackName || ""} ${
+        r.trainingName || ""
+      }`.toLowerCase();
+      return hay.includes(query);
+    });
+  }, [visibleTrainingRecords, q, statusFilter]);
+
+  const filtered = useMemo(() => {
+    if (statFilter === "ALL") return baseFiltered;
+
+    return baseFiltered.filter((r) => {
+      const s = statusLabel(r);
+      if (statFilter === "OVERDUE") return s === "Overdue";
+      if (statFilter === "DUE") return s === "Due soon";
+      if (statFilter === "COMPLETE")
+        return s === "Complete" || s === "Never expires";
+      return true;
+    });
+  }, [baseFiltered, statFilter]);
+
+  const stats = useMemo(() => computeCounts(baseFiltered), [baseFiltered]);
+
+  const crewSubtitleByKey = useMemo(() => {
+    const map = new Map();
+    for (const r of filtered) {
+      const ck = String(r.crewId ?? r.crewName ?? "Unknown");
+      if (!map.has(ck)) map.set(ck, r.homeDepartment || "");
+    }
+    return map;
+  }, [filtered]);
+
+  const groupedByCrew = useMemo(
+    () =>
+      buildHierarchy(
+        filtered,
+        [
+          {
+            keyOf: (r) => String(r.crewId ?? r.crewName ?? "Unknown"),
+            titleOf: (r) => r.crewName || "Unknown",
+          },
+          {
+            keyOf: (r) => String(r.trackId ?? r.trackName ?? "Unknown Track"),
+            titleOf: (r) => r.trackName || "Unknown Track",
+          },
+        ],
+        "trainingName"
+      ),
+    [filtered]
+  );
+
+  const groupedByTraining = useMemo(
+    () =>
+      buildHierarchy(
+        filtered,
+        [
+          {
+            keyOf: (r) =>
+              String(r.trainingId ?? r.trainingName ?? "Unknown Training"),
+            titleOf: (r) => r.trainingName || "Unknown Training",
+          },
+          {
+            keyOf: (r) => String(r.trackId ?? r.trackName ?? "Unknown Track"),
+            titleOf: (r) => r.trackName || "Unknown Track",
+          },
+        ],
+        "crewName"
+      ),
+    [filtered]
+  );
+
+  const groupedByDepartment = useMemo(
+    () =>
+      buildHierarchy(
+        filtered,
+        [
+          {
+            keyOf: (r) => {
+              const d = (r.homeDepartment || "").trim();
+              return d ? prettyTitle(d) : "No Department";
+            },
+            titleOf: (r) => {
+              const d = (r.homeDepartment || "").trim();
+              return d ? prettyTitle(d) : "No Department";
+            },
+          },
+          {
+            keyOf: (r) => String(r.crewId ?? r.crewName ?? "Unknown"),
+            titleOf: (r) => r.crewName || "Unknown",
+          },
+          {
+            keyOf: (r) => String(r.trackId ?? r.trackName ?? "Unknown Track"),
+            titleOf: (r) => r.trackName || "Unknown Track",
+          },
+        ],
+        "trainingName"
+      ),
+    [filtered]
+  );
+
+  const groupsForView = useMemo(() => {
+    if (viewMode === "list") return [];
+    if (viewMode === "training") return groupedByTraining;
+    if (viewMode === "department") return groupedByDepartment;
+    return groupedByCrew;
+  }, [viewMode, groupedByCrew, groupedByTraining, groupedByDepartment]);
+
+  const viewConfig = useMemo(() => {
+    if (viewMode === "training") {
+      return { titleMode: "trainingView", subtitleOfTop: () => "Tracks" };
+    }
+    if (viewMode === "department") {
+      return { titleMode: "crewView", subtitleOfTop: () => "Department" };
+    }
+    if (viewMode === "list") {
+      return { titleMode: "crewView", subtitleOfTop: () => "" };
+    }
+    return {
+      titleMode: "crewView",
+      subtitleOfTop: (g) => {
+        const topKey = String(g.key).split(KEY_SEP)[0];
+        const homeDept = crewSubtitleByKey.get(topKey) || "";
+        return homeDept ? prettyTitle(homeDept) : "—";
+      },
+    };
+  }, [viewMode, crewSubtitleByKey]);
+
+  const activeChips = useMemo(() => {
+    const chips = [];
+
+    if (recordsCrewId !== "ALL") {
+      const c = crew.find((x) => String(x.id) === String(recordsCrewId));
+      chips.push({
+        key: "crew",
+        text: `Crew: ${c?.name || recordsCrewId}`,
+        clear: () => setRecordsCrewId("ALL"),
+      });
+    }
+    if (recordsTrackId !== "ALL") {
+      const t = tracks.find((x) => String(x.id) === String(recordsTrackId));
+      chips.push({
+        key: "track",
+        text: `Track: ${t?.name || recordsTrackId}`,
+        clear: () => setRecordsTrackId("ALL"),
+      });
+    }
+    if (recordsTrainingId !== "ALL") {
+      const tr = trainings.find(
+        (x) => String(x.id) === String(recordsTrainingId)
+      );
+      chips.push({
+        key: "training",
+        text: `Training: ${tr?.name || recordsTrainingId}`,
+        clear: () => setRecordsTrainingId("ALL"),
+      });
+    }
+    if ((q || "").trim()) {
+      chips.push({
+        key: "q",
+        text: `Search: ${(q || "").trim()}`,
+        clear: () => setQ(""),
+      });
+    }
+
+    if (statusFilter !== "ACTIVE") {
+      const map = { ACTIVE: "Active", INACTIVE: "Inactive", ALL: "All" };
+      chips.push({
+        key: "status",
+        text: `Status: ${map[statusFilter] || statusFilter}`,
+        clear: () => setStatusFilter("ACTIVE"),
+      });
+    }
+
+    if (statFilter !== "ALL") {
+      const map = {
+        OVERDUE: "Overdue",
+        DUE: "Due soon",
+        COMPLETE: "Complete",
+      };
+      chips.push({
+        key: "stat",
+        text: `Focus: ${map[statFilter] || statFilter}`,
+        clear: () => setStatFilter("ALL"),
+      });
+    }
+
+    return chips;
+  }, [
+    crew,
+    tracks,
+    trainings,
+    recordsCrewId,
+    recordsTrackId,
+    recordsTrainingId,
+    q,
+    statFilter,
+    statusFilter,
+    setRecordsCrewId,
+    setRecordsTrackId,
+    setRecordsTrainingId,
+  ]);
+
+  const resetAll = useCallback(() => {
+    setRecordsCrewId("ALL");
+    setRecordsTrackId("ALL");
+    setRecordsTrainingId("ALL");
+    setQ("");
+    setStatFilter("ALL");
+    setStatusFilter("ACTIVE");
+    setViewMode("list");
+    setFiltersOpen(false);
+
+    setExpandedByView({
+      crew: new Set(),
+      training: new Set(),
+      department: new Set(),
+      list: new Set(),
+    });
+  }, [setRecordsCrewId, setRecordsTrackId, setRecordsTrainingId]);
+
+  const expandTop = useCallback(() => {
+    if (viewMode === "list") return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (const g of groupsForView) next.add(g.key);
+      return next;
+    });
+  }, [setExpanded, groupsForView, viewMode]);
+
+  const collapseTop = useCallback(() => {
+    if (viewMode === "list") return;
+    setExpanded(new Set());
+  }, [setExpanded, viewMode]);
+
+  const stickyShell = useMemo(
+    () => ({
+      position: "sticky",
+      top: 0,
+      zIndex: 3,
+      padding: "12px 0 12px",
+      marginBottom: 14,
+      backdropFilter: "blur(14px)",
+      background:
+        "linear-gradient(180deg, rgba(16,18,26,0.92) 0%, rgba(16,18,26,0.72) 65%, rgba(16,18,26,0.00) 100%)",
+    }),
+    []
+  );
+
+  const commandBar = useMemo(
+    () => ({
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap",
+      padding: 12,
+      borderRadius: 18,
+      border: "1px solid rgba(255,255,255,0.10)",
+      background: "rgba(0,0,0,0.22)",
+      boxShadow: "0 16px 44px rgba(0,0,0,0.18)",
+    }),
+    []
+  );
+
+  const filterPanel = useMemo(
+    () => ({
+      overflow: "hidden",
+      borderRadius: 18,
+      border: "1px solid rgba(255,255,255,0.10)",
+      background:
+        "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(0,0,0,0.20) 100%)",
+      boxShadow: "0 14px 40px rgba(0,0,0,0.16)",
+      maxHeight: filtersOpen ? 240 : 0,
+      opacity: filtersOpen ? 1 : 0,
+      transform: filtersOpen ? "translateY(0px)" : "translateY(-6px)",
+      transition:
+        "max-height 220ms ease, opacity 180ms ease, transform 220ms ease",
+    }),
+    [filtersOpen]
+  );
+
+  const renderLeafCard = useCallback(
+    (items, titleMode) => (
+      <div
+        style={{
+          marginLeft: 16,
+          padding: 10,
+          borderRadius: 16,
+          border: "1px solid rgba(255,255,255,0.10)",
+          background: "rgba(0,0,0,0.14)",
+          boxShadow: "0 14px 36px rgba(0,0,0,0.18)",
+        }}
+      >
+        <div
+          style={{
+            borderRadius: 14,
+            overflow: "hidden",
+            border: "1px solid rgba(255,255,255,0.08)",
+            background: "rgba(0,0,0,0.18)",
+          }}
+        >
+          {items.map((r, idx) => (
+            <RecordRow
+              key={r.id}
+              S={S}
+              r={r}
+              markRecordComplete={markRecordComplete}
+              openHistory={openHistory}
+              isFirst={idx === 0}
+              isLast={idx === items.length - 1}
+              titleMode={titleMode}
+            />
+          ))}
+        </div>
+      </div>
+    ),
+    [S, markRecordComplete, openHistory]
+  );
+
+  const renderNode = useCallback(
+    (node, depth, cfg) => {
+      const open = expanded.has(node.key);
+      const isTop = depth === 0;
+
+      const subtitle =
+        isTop && cfg.subtitleOfTop
+          ? cfg.subtitleOfTop(node)
+          : isTop
+          ? "—"
+          : undefined;
+
+      return (
+        <div
+          key={node.key}
+          style={{ display: "flex", flexDirection: "column", gap: 10 }}
+        >
+          <GroupHeader
+            variant={isTop ? "top" : "sub"}
+            title={node.title}
+            subtitle={subtitle}
+            open={open}
+            onToggle={() => toggleKey(node.key)}
+            counts={node.counts}
+          />
+
+          {open && (
+            <div
+              style={{
+                marginLeft: isTop ? 18 : 16,
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+              }}
+            >
+              {node.children?.length
+                ? node.children.map((c) => renderNode(c, depth + 1, cfg))
+                : renderLeafCard(node.items || [], cfg.titleMode)}
+            </div>
+          )}
+        </div>
+      );
+    },
+    [expanded, toggleKey, renderLeafCard]
+  );
+
+  return (
+    <div style={S.card}>
+      <div style={S.cardHeader}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <h2 style={S.cardTitle}>Training Records</h2>
+          <div style={S.helper}>
+            Training history and recertification tracking.
+          </div>
+        </div>
+
+        <div style={S.row}>
+          <button
+            style={S.button("subtle")}
+            onClick={() => loadTrainingRecords(true)}
+          >
+            Refresh
+          </button>
+          <button style={S.button("ghost")} onClick={resetAll}>
+            Reset
+          </button>
+        </div>
+      </div>
+
+      <div style={S.cardBody}>
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            flexWrap: "wrap",
+            marginBottom: 14,
+          }}
+        >
+          <StatCard
+            label="Overdue"
+            value={stats.overdue}
+            tone="danger"
+            selected={statFilter === "OVERDUE"}
+            onClick={() =>
+              setStatFilter((p) => (p === "OVERDUE" ? "ALL" : "OVERDUE"))
+            }
+          />
+          <StatCard
+            label="Due soon"
+            value={stats.due}
+            tone="warn"
+            selected={statFilter === "DUE"}
+            onClick={() => setStatFilter((p) => (p === "DUE" ? "ALL" : "DUE"))}
+          />
+          <StatCard
+            label="Complete"
+            value={stats.complete}
+            tone="good"
+            selected={statFilter === "COMPLETE"}
+            onClick={() =>
+              setStatFilter((p) => (p === "COMPLETE" ? "ALL" : "COMPLETE"))
+            }
+          />
+        </div>
+
+        <div style={stickyShell}>
+          <div style={commandBar}>
+            <Segmented
+              value={viewMode}
+              onChange={setViewModeSafe}
+              options={[
+                { value: "list", label: "List" },
+                { value: "crew", label: "By Crew" },
+                { value: "training", label: "By Training" },
+                { value: "department", label: "By Dept" },
+              ]}
+            />
+
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search crew, track, training"
+              style={{ ...S.input, width: 320, flex: "1 1 240px" }}
+            />
+
+            <button
+              type="button"
+              style={S.button(filtersOpen ? "primary" : "subtle")}
+              onClick={() => setFiltersOpen((p) => !p)}
+              title="Show filters"
+            >
+              Filters
+            </button>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={S.button("subtle")} onClick={expandTop}>
+                Expand
+              </button>
+              <button style={S.button("subtle")} onClick={collapseTop}>
+                Collapse
+              </button>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 10, ...filterPanel }}>
+            <div style={{ padding: 12, display: "grid", gap: 10 }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(12, 1fr)",
+                  gap: 10,
+                  alignItems: "center",
+                }}
+              >
+                <div style={{ gridColumn: "span 3", minWidth: 0 }}>
+                  <div style={{ ...S.helper, marginBottom: 6 }}>Crew</div>
+                  <select
+                    value={recordsCrewId}
+                    onChange={(e) => setRecordsCrewId(e.target.value)}
+                    style={{ ...S.select, width: "100%" }}
+                  >
+                    <option value="ALL">All crew</option>
+                    {crew.map((c) => (
+                      <option key={c.id} value={String(c.id)}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ gridColumn: "span 3", minWidth: 0 }}>
+                  <div style={{ ...S.helper, marginBottom: 6 }}>Track</div>
+                  <select
+                    value={recordsTrackId}
+                    onChange={(e) => setRecordsTrackId(e.target.value)}
+                    style={{ ...S.select, width: "100%" }}
+                  >
+                    <option value="ALL">All tracks</option>
+                    {tracks.map((t) => (
+                      <option key={t.id} value={String(t.id)}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ gridColumn: "span 3", minWidth: 0 }}>
+                  <div style={{ ...S.helper, marginBottom: 6 }}>Training</div>
+                  <select
+                    value={recordsTrainingId}
+                    onChange={(e) => setRecordsTrainingId(e.target.value)}
+                    style={{ ...S.select, width: "100%" }}
+                  >
+                    <option value="ALL">All trainings</option>
+                    {trainings.map((t) => (
+                      <option key={t.id} value={String(t.id)}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ gridColumn: "span 3", minWidth: 0 }}>
+                  <div style={{ ...S.helper, marginBottom: 6 }}>Status</div>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    style={{ ...S.select, width: "100%" }}
+                  >
+                    <option value="ACTIVE">Active</option>
+                    <option value="INACTIVE">Inactive</option>
+                    <option value="ALL">All</option>
+                  </select>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    style={S.button("ghost")}
+                    onClick={() => setFiltersOpen(false)}
+                  >
+                    Done
+                  </button>
+                  <button style={S.button("subtle")} onClick={resetAll}>
+                    Clear All
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {activeChips.length > 0 && (
+            <div
+              style={{
+                marginTop: 10,
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
+              {activeChips.map((c) => (
+                <Chip key={c.key} text={c.text} onClear={c.clear} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {recordsLoading && <p style={S.loading}>Loading training records...</p>}
+        {recordsError && <p style={S.error}>{recordsError}</p>}
+
+        {!recordsLoading && !recordsError && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {viewMode === "list" ? (
+              filtered.length > 0 ? (
+                renderLeafCard(filtered, "crewView")
+              ) : (
+                <div style={{ padding: 18, opacity: 0.75 }}>
+                  No records match your filters.
+                </div>
+              )
+            ) : (
+              <>
+                {groupsForView.map((g) => renderNode(g, 0, viewConfig))}
+                {filtered.length === 0 && (
+                  <div style={{ padding: 18, opacity: 0.75 }}>
+                    No records match your filters.
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
