@@ -1494,6 +1494,17 @@ export default function App() {
                     display: "block",
                   }}
                 />
+                <span
+                  style={{
+                    marginLeft: 10,
+                    fontSize: 16,
+                    fontWeight: 600,
+                    color: "rgba(10,18,32,0.9)",
+                    letterSpacing: "0.4px",
+                  }}
+                >
+                  test
+                </span>
               </div>
             </div>
 
