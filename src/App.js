@@ -110,7 +110,21 @@ export default function App() {
 
   // LocationContext (global)
   const { activeLocationId, setActiveLocationId } = useLocation();
-  useLocation();
+
+  // Add location scoping helpers (used in a couple manual queries)
+  const withLoc = useCallback(
+    (path) => {
+      if (!activeLocationId) return path;
+      const join = path.includes("?") ? "&" : "?";
+      return `${path}${join}location_id=eq.${activeLocationId}`;
+    },
+    [activeLocationId]
+  );
+
+  const cacheTag = useMemo(
+    () => `loc:${activeLocationId || "none"}`,
+    [activeLocationId]
+  );
 
   // Locations list (for the dropdown)
   const [locations, setLocations] = useState([]);
