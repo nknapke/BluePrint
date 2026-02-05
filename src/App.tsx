@@ -1134,7 +1134,9 @@ export default function App() {
     trainingById,
     crewDepartments,
     visibleCrew,
+    visibleSignoffs,
     visibleTrainingRecords,
+    isQualifiedStatus,
     requirementsGroupedByTraining,
     requirementsGroupedByTrack,
   } = useAppDerived({
@@ -1549,6 +1551,7 @@ export default function App() {
               crew={crew}
               tracks={tracks}
               signoffs={signoffs}
+              visibleSignoffs={visibleSignoffs}
               signoffsLoading={signoffsLoading}
               signoffsError={signoffsError}
               signoffsCrewId={signoffsCrewId}
@@ -1559,6 +1562,7 @@ export default function App() {
               setSignoffsStatusFilter={setSignoffsStatusFilter}
               loadSignoffs={loadSignoffs}
               updateSignoffStatus={updateSignoffStatus}
+              isQualifiedStatus={isQualifiedStatus}
             />
           )}
 
