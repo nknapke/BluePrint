@@ -1,16 +1,14 @@
 // RecordsTab.js
 import { useMemo, useState, useCallback } from "react";
+import { Chevron } from "../components/ui/Chevron";
+import { DotCount } from "../components/ui/DotCount";
+import { Chip } from "../components/ui/Chip";
+import { Segmented } from "../components/ui/Segmented";
+import { prettyTitle } from "../utils/strings";
 
 const EMPTY_SET = new Set();
 
 /** ----------------------------- Helpers ----------------------------- */
-
-function prettyTitle(s) {
-  const raw = String(s || "").trim();
-  if (!raw) return "";
-  const spaced = raw.replace(/_/g, " ").toLowerCase();
-  return spaced.replace(/\b\w/g, (m) => m.toUpperCase());
-}
 
 function daysText(r) {
   if (!r.lastCompleted) return "Not completed";
@@ -100,66 +98,6 @@ function Pill({ tone, text }) {
 
   return (
     <span style={{ ...base, ...(tones[tone] || tones.muted) }}>{text}</span>
-  );
-}
-
-function Chevron({ open, size = 26 }) {
-  return (
-    <span
-      aria-hidden="true"
-      style={{
-        width: size,
-        height: size,
-        borderRadius: 10,
-        display: "grid",
-        placeItems: "center",
-        border: "1px solid rgba(255,255,255,0.10)",
-        background: "rgba(255,255,255,0.06)",
-        transform: open ? "rotate(90deg)" : "rotate(0deg)",
-        transition: "transform 160ms ease",
-        lineHeight: 1,
-        fontSize: 18,
-        fontWeight: 900,
-        opacity: 0.9,
-        flex: "0 0 auto",
-      }}
-    >
-      ›
-    </span>
-  );
-}
-
-function DotCount({ color, count, title }) {
-  return (
-    <span
-      title={title}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 7,
-        padding: "6px 10px",
-        borderRadius: 999,
-        border: "1px solid rgba(255,255,255,0.10)",
-        background: "rgba(255,255,255,0.04)",
-        fontSize: 12,
-        fontWeight: 800,
-        color: "rgba(255,255,255,0.88)",
-        whiteSpace: "nowrap",
-        opacity: count === 0 ? 0.6 : 1,
-      }}
-    >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 999,
-          background: color,
-          boxShadow: "0 0 0 3px rgba(255,255,255,0.06)",
-          opacity: count === 0 ? 0.55 : 1,
-        }}
-      />
-      {count}
-    </span>
   );
 }
 
@@ -372,96 +310,6 @@ function StatCard({ label, value, tone, selected, onClick }) {
         {selected ? "Filtering" : "Tap to filter"}
       </div>
     </button>
-  );
-}
-
-function Chip({ text, onClear }) {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "7px 10px",
-        borderRadius: 999,
-        border: "1px solid rgba(255,255,255,0.10)",
-        background: "rgba(255,255,255,0.05)",
-        color: "rgba(255,255,255,0.88)",
-        fontSize: 12,
-        fontWeight: 800,
-        userSelect: "none",
-        whiteSpace: "nowrap",
-      }}
-    >
-      <span style={{ opacity: 0.92 }}>{text}</span>
-      <button
-        type="button"
-        onClick={onClear}
-        style={{
-          width: 20,
-          height: 20,
-          borderRadius: 999,
-          border: "1px solid rgba(255,255,255,0.12)",
-          background: "rgba(0,0,0,0.18)",
-          color: "rgba(255,255,255,0.88)",
-          cursor: "pointer",
-          fontWeight: 900,
-          lineHeight: 1,
-          display: "grid",
-          placeItems: "center",
-        }}
-        title="Clear"
-      >
-        ×
-      </button>
-    </span>
-  );
-}
-
-// Keep this Segmented (uses applyPressScale) and do not define another one
-function Segmented({ value, onChange, options }) {
-  return (
-    <div
-      style={{
-        display: "inline-flex",
-        padding: 4,
-        borderRadius: 14,
-        border: "1px solid rgba(255,255,255,0.10)",
-        background: "rgba(0,0,0,0.18)",
-        boxShadow: "0 12px 30px rgba(0,0,0,0.16)",
-      }}
-    >
-      {options.map((o) => {
-        const active = value === o.value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            onClick={() => onChange(o.value)}
-            style={{
-              padding: "8px 12px",
-              borderRadius: 12,
-              border: "1px solid transparent",
-              background: active
-                ? "linear-gradient(180deg, rgba(0,122,255,0.20) 0%, rgba(255,255,255,0.06) 100%)"
-                : "transparent",
-              color: active
-                ? "rgba(255,255,255,0.95)"
-                : "rgba(255,255,255,0.82)",
-              fontSize: 12,
-              fontWeight: 900,
-              letterSpacing: "-0.01em",
-              cursor: "pointer",
-              transition: "background 160ms ease, transform 120ms ease",
-              whiteSpace: "nowrap",
-            }}
-            onMouseDown={(e) => applyPressScale(e, 0.98)}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 

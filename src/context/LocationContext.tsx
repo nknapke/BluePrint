@@ -1,4 +1,4 @@
-// src/context/LocationContext.js
+// src/context/LocationContext.tsx
 import React, {
   createContext,
   useCallback,
@@ -6,12 +6,20 @@ import React, {
   useEffect,
   useMemo,
   useState,
+  type ReactNode,
 } from "react";
 
-const LocationContext = createContext(null);
+type LocationContextValue = {
+  activeLocationId: number | null;
+  setActiveLocationId: React.Dispatch<React.SetStateAction<number | null>>;
+  cacheTag: string;
+  withLoc: (path: string) => string;
+};
 
-export function LocationProvider({ children }) {
-  const [activeLocationId, setActiveLocationId] = useState(() => {
+const LocationContext = createContext<LocationContextValue | null>(null);
+
+export function LocationProvider({ children }: { children: ReactNode }) {
+  const [activeLocationId, setActiveLocationId] = useState<number | null>(() => {
     const raw = localStorage.getItem("blueprint_location_id");
     return raw ? Number(raw) : null;
   });
@@ -28,7 +36,7 @@ export function LocationProvider({ children }) {
   );
 
   const withLoc = useCallback(
-    (path) => {
+    (path: string) => {
       if (!activeLocationId) return path;
       const joiner = path.includes("?") ? "&" : "?";
       return `${path}${joiner}location_id=eq.${activeLocationId}`;
@@ -53,7 +61,7 @@ export function LocationProvider({ children }) {
   );
 }
 
-export function useLocation() {
+export function useLocation(): LocationContextValue {
   const ctx = useContext(LocationContext);
   if (!ctx) {
     throw new Error("useLocation must be used inside <LocationProvider>.");

@@ -1,20 +1,35 @@
-// src/hooks/useHistoryModal.js
+// src/hooks/useHistoryModal.ts
 import { useCallback, useMemo, useState } from "react";
 import { useLocation } from "../context/LocationContext";
 
-export function useHistoryModal({ supabaseGet, supabaseDelete }) {
+type SupabaseGet = (path: string, opts?: any) => Promise<any>;
+type SupabaseDelete = (path: string, opts?: any) => Promise<any>;
+type RecordRow = { id?: number; [key: string]: any };
+type HistoryRow = { id?: number; [key: string]: any };
+
+function getErrorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+export function useHistoryModal({
+  supabaseGet,
+  supabaseDelete,
+}: {
+  supabaseGet: SupabaseGet;
+  supabaseDelete: SupabaseDelete;
+}) {
   const { withLoc, cacheTag } = useLocation();
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState("");
-  const [historyRows, setHistoryRows] = useState([]);
-  const [historyContext, setHistoryContext] = useState(null);
+  const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
+  const [historyContext, setHistoryContext] = useState<RecordRow | null>(null);
 
   const opts = useMemo(() => ({ cacheTag }), [cacheTag]);
 
   const loadHistoryForRecord = useCallback(
-    async (recordRow) => {
+    async (recordRow: RecordRow | null) => {
       if (!recordRow?.id) return;
 
       setHistoryBusy(true);
@@ -29,7 +44,7 @@ export function useHistoryModal({ supabaseGet, supabaseDelete }) {
         );
         setHistoryRows(data || []);
       } catch (e) {
-        setHistoryError(String(e.message || e));
+        setHistoryError(getErrorMessage(e));
       } finally {
         setHistoryBusy(false);
       }
@@ -38,7 +53,7 @@ export function useHistoryModal({ supabaseGet, supabaseDelete }) {
   );
 
   const openHistory = useCallback(
-    (recordRow) => {
+    (recordRow: RecordRow | null) => {
       setHistoryContext(recordRow);
       setHistoryRows([]);
       setHistoryError("");
@@ -55,7 +70,7 @@ export function useHistoryModal({ supabaseGet, supabaseDelete }) {
   }, [historyBusy]);
 
   const deleteHistoryRow = useCallback(
-    async (historyRow) => {
+    async (historyRow: HistoryRow) => {
       if (!historyRow?.id) return;
 
       const ok = window.confirm("Delete this history entry?");
@@ -71,7 +86,7 @@ export function useHistoryModal({ supabaseGet, supabaseDelete }) {
 
         await loadHistoryForRecord(historyContext);
       } catch (e) {
-        setHistoryError(String(e.message || e));
+        setHistoryError(getErrorMessage(e));
       } finally {
         setHistoryBusy(false);
       }

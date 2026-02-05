@@ -1,17 +1,40 @@
-// src/hooks/useMarkComplete.js
+// src/hooks/useMarkComplete.ts
 import { useCallback, useMemo, useState } from "react";
 import { useLocation } from "../context/LocationContext";
+
+type SupabasePost = (path: string, body: any, opts?: any) => Promise<any>;
+type SupabasePatch = (path: string, body: any, opts?: any) => Promise<any>;
+type InvalidateMany = (paths: string[]) => void;
+type LoadTrainingRecords = (force?: boolean) => Promise<void>;
+
+type RecordRow = {
+  id: number;
+  locationId?: number | null;
+  crewId: number;
+  trackId: number;
+  trainingId: number;
+  crewName?: string;
+  trackName?: string;
+  trainingName?: string;
+};
 
 export function useMarkComplete({
   supabasePost,
   supabasePatch,
   invalidateMany,
   loadTrainingRecords,
+}: {
+  supabasePost: SupabasePost;
+  supabasePatch: SupabasePatch;
+  invalidateMany: InvalidateMany;
+  loadTrainingRecords: LoadTrainingRecords;
 }) {
   const { activeLocationId } = useLocation();
 
   const [markCompleteOpen, setMarkCompleteOpen] = useState(false);
-  const [markCompleteRow, setMarkCompleteRow] = useState(null);
+  const [markCompleteRow, setMarkCompleteRow] = useState<RecordRow | null>(
+    null
+  );
 
   const [markCompleteDate, setMarkCompleteDate] = useState(() =>
     new Date().toISOString().slice(0, 10)
@@ -24,7 +47,7 @@ export function useMarkComplete({
   const defaultDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const openMarkComplete = useCallback(
-    (recordRow) => {
+    (recordRow: RecordRow) => {
       setMarkCompleteRow(recordRow);
       setMarkCompleteDate(defaultDate);
       setMarkCompleteBy("");
@@ -65,7 +88,12 @@ export function useMarkComplete({
         notes: notes || null,
       });
 
-      const patch = {
+      const patch: {
+        last_completed: string;
+        is_record_active: boolean;
+        signoff_by?: string;
+        notes?: string;
+      } = {
         last_completed: markCompleteDate,
         is_record_active: true,
       };
@@ -87,7 +115,8 @@ export function useMarkComplete({
       setMarkCompleteOpen(false);
       setMarkCompleteRow(null);
     } catch (e) {
-      alert("Failed to mark training complete:\n" + String(e.message || e));
+      const message = e instanceof Error ? e.message : String(e);
+      alert("Failed to mark training complete:\n" + message);
     } finally {
       setMarkCompleteSaving(false);
     }

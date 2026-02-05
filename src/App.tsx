@@ -1,21 +1,27 @@
-// App.js
+// App.tsx
 import blueprintIcon from "./assets/blueprint-icon.png";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { createSupabaseRestClient } from "./lib/supabaseRest";
 import { createStyles } from "./components/ui/Styles";
+
+import {
+  DEPARTMENTS,
+  LOCATION_SCOPED_CACHE_KEYS,
+  REFRESH_MS,
+  TABS,
+  type TabId,
+} from "./app/constants";
+import { AppHeader } from "./app/AppHeader";
+import { AppModals } from "./app/AppModals";
+import { useAppState } from "./app/useAppState";
+import { useAppDerived } from "./app/useAppDerived";
 
 import { useLocation } from "./context/LocationContext";
 import { useDataLoaders } from "./hooks/useDataLoaders";
 import { useHistoryModal } from "./hooks/useHistoryModal";
 import { useMarkComplete } from "./hooks/useMarkComplete";
-
-import HistoryModal from "./components/modals/HistoryModal";
-import AddCrewModal from "./components/modals/AddCrewModal";
-import AddTrackModal from "./components/modals/AddTrackModal";
-import AddTrainingModal from "./components/modals/AddTrainingModal";
-import MarkCompleteModal from "./components/modals/MarkCompleteModal";
 
 import CrewTab from "./tabs/CrewTab";
 import TracksTab from "./tabs/TracksTab";
@@ -29,43 +35,11 @@ const SUPABASE_URL = "https://aoybyypndyvuxxjymkyf.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFveWJ5eXBuZHl2dXh4anlta3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg3NDYyOTYsImV4cCI6MjA4NDMyMjI5Nn0.wfDbPsP5ItA4mn572ZtZeqjRN2X6bmbpRzUjVrnC0m0";
 
-const REFRESH_MS = 10000;
+type AnyRow = Record<string, any>;
 
-const TABS = [
-  "crew",
-  "trackDefs",
-  "trainingDefs",
-  "signoffs",
-  "requirements",
-  "records",
-  "planner",
-];
-
-const DEPARTMENTS = [
-  "Automation",
-  "Carpentry",
-  "Video",
-  "Props",
-  "Lighting",
-  "Wardrobe",
-  "Audio",
-  "Stage Management",
-  "Production Management",
-  "Front of House",
-  "Upper Management",
-];
-
-const LOCATION_SCOPED_CACHE_KEYS = [
-  "/rest/v1/crew_roster",
-  "/rest/v1/track_definitions",
-  "/rest/v1/training_definitions",
-  "/rest/v1/training_groups",
-  "/rest/v1/track_training_requirements",
-  "/rest/v1/crew_track_signoffs",
-  "/rest/v1/crew_training_records",
-  "/rest/v1/v_training_dashboard_with_signer",
-  "/rest/v1/crew_training_record_history",
-];
+function getErrorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
 
 export default function App() {
   const {
@@ -94,26 +68,192 @@ export default function App() {
     };
   }, []);
 
-  const safeSet = useCallback((setter) => {
+  const safeSet = useCallback((setter: () => void) => {
     if (!isMountedRef.current) return;
     setter();
   }, []);
 
   const invalidateMany = useCallback(
-    (paths) => {
+    (paths: readonly string[]) => {
       paths.forEach((p) => invalidateGetCache(p));
     },
     [invalidateGetCache]
   );
 
-  const [activeTab, setActiveTab] = useState("crew");
+  const {
+    activeTab,
+    setActiveTab,
+
+    locations,
+    setLocations,
+    locationsLoading,
+    setLocationsLoading,
+    locationsError,
+    setLocationsError,
+
+    crew,
+    setCrew,
+    crewLoading,
+    setCrewLoading,
+    crewError,
+    setCrewError,
+
+    tracks,
+    setTracks,
+    tracksLoading,
+    setTracksLoading,
+    tracksError,
+    setTracksError,
+
+    trainings,
+    setTrainings,
+    trainingsLoading,
+    setTrainingsLoading,
+    trainingsError,
+    setTrainingsError,
+
+    trainingGroups,
+    setTrainingGroups,
+    trainingGroupsLoading,
+    setTrainingGroupsLoading,
+    trainingGroupsError,
+    setTrainingGroupsError,
+
+    requirements,
+    setRequirements,
+    requirementsLoading,
+    setRequirementsLoading,
+    requirementsError,
+    setRequirementsError,
+
+    signoffs,
+    setSignoffs,
+    signoffsLoading,
+    setSignoffsLoading,
+    signoffsError,
+    setSignoffsError,
+
+    trainingRecords,
+    setTrainingRecords,
+    recordsLoading,
+    setRecordsLoading,
+    recordsError,
+    setRecordsError,
+
+    signoffsCrewId,
+    setSignoffsCrewId,
+    signoffsTrackId,
+    setSignoffsTrackId,
+    signoffsStatusFilter,
+    setSignoffsStatusFilter,
+
+    crewNameFilter,
+    setCrewNameFilter,
+    crewDeptFilter,
+    setCrewDeptFilter,
+    crewStatusFilter,
+    setCrewStatusFilter,
+
+    recordsCrewId,
+    setRecordsCrewId,
+    recordsTrackId,
+    setRecordsTrackId,
+    recordsTrainingId,
+    setRecordsTrainingId,
+
+    editingCrewId,
+    setEditingCrewId,
+    editCrewName,
+    setEditCrewName,
+    editCrewDept,
+    setEditCrewDept,
+    editCrewStatus,
+    setEditCrewStatus,
+    editCrewSaving,
+    setEditCrewSaving,
+
+    editingTrainingId,
+    setEditingTrainingId,
+    editTrainingName,
+    setEditTrainingName,
+    editTrainingActive,
+    setEditTrainingActive,
+    editTrainingSaving,
+    setEditTrainingSaving,
+    editTrainingExpiryWeeks,
+    setEditTrainingExpiryWeeks,
+    editTrainingGroupId,
+    setEditTrainingGroupId,
+
+    editingTrackId,
+    setEditingTrackId,
+    editTrackName,
+    setEditTrackName,
+    editTrackActive,
+    setEditTrackActive,
+    editTrackSaving,
+    setEditTrackSaving,
+
+    reqNewTrackId,
+    setReqNewTrackId,
+    reqNewTrainingId,
+    setReqNewTrainingId,
+    reqNewActive,
+    setReqNewActive,
+    reqAdding,
+    setReqAdding,
+
+    requirementsViewMode,
+    setRequirementsViewMode,
+    expandedTrainingIds,
+    setExpandedTrainingIds,
+    expandedReqTrackIds,
+    setExpandedReqTrackIds,
+
+    addTrainingOpen,
+    setAddTrainingOpen,
+    newTrainingId,
+    setNewTrainingId,
+    newTrainingName,
+    setNewTrainingName,
+    newTrainingActive,
+    setNewTrainingActive,
+    newTrainingExpiryMode,
+    setNewTrainingExpiryMode,
+    newTrainingExpiryWeeks,
+    setNewTrainingExpiryWeeks,
+    addingTraining,
+    setAddingTraining,
+
+    addTrackOpen,
+    setAddTrackOpen,
+    newTrackId,
+    setNewTrackId,
+    newTrackName,
+    setNewTrackName,
+    newTrackActive,
+    setNewTrackActive,
+    addingTrack,
+    setAddingTrack,
+
+    addCrewOpen,
+    setAddCrewOpen,
+    newCrewName,
+    setNewCrewName,
+    newCrewDept,
+    setNewCrewDept,
+    newCrewStatus,
+    setNewCrewStatus,
+    addingCrew,
+    setAddingCrew,
+  } = useAppState();
 
   // LocationContext (global)
   const { activeLocationId, setActiveLocationId } = useLocation();
 
   // Add location scoping helpers (used in a couple manual queries)
   const withLoc = useCallback(
-    (path) => {
+    (path: string) => {
       if (!activeLocationId) return path;
       const join = path.includes("?") ? "&" : "?";
       return `${path}${join}location_id=eq.${activeLocationId}`;
@@ -126,126 +266,12 @@ export default function App() {
     [activeLocationId]
   );
 
-  // Locations list (for the dropdown)
-  const [locations, setLocations] = useState([]);
-  const [locationsLoading, setLocationsLoading] = useState(true);
-  const [locationsError, setLocationsError] = useState("");
-
   const supabaseRpc = useCallback(
-    async (fnName, payload) => {
+    async (fnName: string, payload: any) => {
       return await supabasePost(`/rest/v1/rpc/${fnName}`, payload);
     },
     [supabasePost]
   );
-
-  // Crew
-  const [crew, setCrew] = useState([]);
-  const [crewLoading, setCrewLoading] = useState(true);
-  const [crewError, setCrewError] = useState("");
-
-  // Tracks
-  const [tracks, setTracks] = useState([]);
-  const [tracksLoading, setTracksLoading] = useState(true);
-  const [tracksError, setTracksError] = useState("");
-
-  // Trainings
-  const [trainings, setTrainings] = useState([]);
-  const [trainingsLoading, setTrainingsLoading] = useState(true);
-  const [trainingsError, setTrainingsError] = useState("");
-
-  // Training Groups
-  const [trainingGroups, setTrainingGroups] = useState([]);
-  const [trainingGroupsLoading, setTrainingGroupsLoading] = useState(true);
-  const [trainingGroupsError, setTrainingGroupsError] = useState("");
-
-  // Requirements
-  const [requirements, setRequirements] = useState([]);
-  const [requirementsLoading, setRequirementsLoading] = useState(true);
-  const [requirementsError, setRequirementsError] = useState("");
-
-  // Signoffs
-  const [signoffs, setSignoffs] = useState([]);
-  const [signoffsLoading, setSignoffsLoading] = useState(true);
-  const [signoffsError, setSignoffsError] = useState("");
-
-  // Training Records
-  const [trainingRecords, setTrainingRecords] = useState([]);
-  const [recordsLoading, setRecordsLoading] = useState(true);
-  const [recordsError, setRecordsError] = useState("");
-
-  // Track Signoffs filters
-  const [signoffsCrewId, setSignoffsCrewId] = useState("ALL");
-  const [signoffsTrackId, setSignoffsTrackId] = useState("ALL");
-  const [signoffsStatusFilter, setSignoffsStatusFilter] = useState("ALL"); // ALL / No / Training / Yes
-
-  // Crew Roster filters
-  const [crewNameFilter, setCrewNameFilter] = useState("ALL");
-  const [crewDeptFilter, setCrewDeptFilter] = useState("ALL");
-  const [crewStatusFilter, setCrewStatusFilter] = useState("Active");
-
-  // Training Records filters
-  const [recordsCrewId, setRecordsCrewId] = useState("ALL");
-  const [recordsTrackId, setRecordsTrackId] = useState("ALL");
-  const [recordsTrainingId, setRecordsTrainingId] = useState("ALL");
-
-  // Inline edit (crew)
-  const [editingCrewId, setEditingCrewId] = useState(null);
-  const [editCrewName, setEditCrewName] = useState("");
-  const [editCrewDept, setEditCrewDept] = useState("");
-  const [editCrewStatus, setEditCrewStatus] = useState("Active");
-  const [editCrewSaving, setEditCrewSaving] = useState(false);
-
-  // Inline edit (training definitions)
-  const [editingTrainingId, setEditingTrainingId] = useState(null);
-  const [editTrainingName, setEditTrainingName] = useState("");
-  const [editTrainingActive, setEditTrainingActive] = useState("TRUE"); // TRUE / FALSE
-  const [editTrainingSaving, setEditTrainingSaving] = useState(false);
-  const [editTrainingExpiryWeeks, setEditTrainingExpiryWeeks] = useState(""); // blank = Never (0)
-  const [editTrainingGroupId, setEditTrainingGroupId] = useState(""); // "" = Ungrouped (null)
-
-  // Inline edit (tracks)
-  const [editingTrackId, setEditingTrackId] = useState(null);
-  const [editTrackName, setEditTrackName] = useState("");
-  const [editTrackActive, setEditTrackActive] = useState("TRUE"); // TRUE / FALSE
-  const [editTrackSaving, setEditTrackSaving] = useState(false);
-
-  // Add Training Requirement
-  const [reqNewTrackId, setReqNewTrackId] = useState("ALL");
-  const [reqNewTrainingId, setReqNewTrainingId] = useState("ALL");
-  const [reqNewActive, setReqNewActive] = useState("TRUE"); // TRUE / FALSE
-  const [reqAdding, setReqAdding] = useState(false);
-
-  // Requirements view + accordion
-  const [requirementsViewMode, setRequirementsViewMode] = useState("training"); // training | track
-  const [expandedTrainingIds, setExpandedTrainingIds] = useState(
-    () => new Set()
-  );
-  const [expandedReqTrackIds, setExpandedReqTrackIds] = useState(
-    () => new Set()
-  );
-
-  // Add Training modal
-  const [addTrainingOpen, setAddTrainingOpen] = useState(false);
-  const [newTrainingId, setNewTrainingId] = useState("");
-  const [newTrainingName, setNewTrainingName] = useState("");
-  const [newTrainingActive, setNewTrainingActive] = useState("TRUE"); // TRUE / FALSE
-  const [newTrainingExpiryMode, setNewTrainingExpiryMode] = useState("NEVER"); // NEVER | WEEKS
-  const [newTrainingExpiryWeeks, setNewTrainingExpiryWeeks] = useState(""); // string
-  const [addingTraining, setAddingTraining] = useState(false);
-
-  // Add Track modal
-  const [addTrackOpen, setAddTrackOpen] = useState(false);
-  const [newTrackId, setNewTrackId] = useState("");
-  const [newTrackName, setNewTrackName] = useState("");
-  const [newTrackActive, setNewTrackActive] = useState("TRUE"); // TRUE / FALSE
-  const [addingTrack, setAddingTrack] = useState(false);
-
-  // Add Crew Member modal
-  const [addCrewOpen, setAddCrewOpen] = useState(false);
-  const [newCrewName, setNewCrewName] = useState("");
-  const [newCrewDept, setNewCrewDept] = useState(DEPARTMENTS[0] || "");
-  const [newCrewStatus, setNewCrewStatus] = useState("Active");
-  const [addingCrew, setAddingCrew] = useState(false);
 
   // ---- Loaders (now read location from LocationContext internally) ----
   const {
@@ -414,8 +440,8 @@ export default function App() {
 
       setAddTrainingOpen(false);
     } catch (e) {
-      alert("Failed to add training:\n" + String(e.message || e));
-      setTrainingsError(String(e.message || e));
+      alert("Failed to add training:\n" + getErrorMessage(e));
+      setTrainingsError(getErrorMessage(e));
     } finally {
       setAddingTraining(false);
     }
@@ -568,14 +594,14 @@ export default function App() {
       await loadCrew(true);
       setAddCrewOpen(false);
     } catch (e) {
-      alert("Failed to add crew member:\n" + String(e.message || e));
-      setCrewError(String(e.message || e));
+      alert("Failed to add crew member:\n" + getErrorMessage(e));
+      setCrewError(getErrorMessage(e));
     } finally {
       setAddingCrew(false);
     }
   }
 
-  async function deleteCrewMember(crewRow) {
+  async function deleteCrewMember(crewRow: AnyRow) {
     const crewId = crewRow.id;
     const crewName = crewRow.name || `ID ${crewId}`;
 
@@ -608,13 +634,13 @@ export default function App() {
       if (String(recordsCrewId) === String(crewId)) setRecordsCrewId("ALL");
       if (editingCrewId === crewId) setEditingCrewId(null);
     } catch (e) {
-      alert("Failed to delete crew member:\n" + String(e.message || e));
-      setCrewError(String(e.message || e));
+      alert("Failed to delete crew member:\n" + getErrorMessage(e));
+      setCrewError(getErrorMessage(e));
       setCrewLoading(false);
     }
   }
 
-  function startEditCrew(c) {
+  function startEditCrew(c: AnyRow) {
     setEditingCrewId(c.id);
     setEditCrewName(c.name || "");
     setEditCrewDept(c.dept || "");
@@ -628,7 +654,7 @@ export default function App() {
     setEditCrewStatus("Active");
   }
 
-  async function saveEditCrew(c) {
+  async function saveEditCrew(c: AnyRow) {
     const newName = (editCrewName || "").trim();
     if (!newName) {
       alert("Name cannot be blank.");
@@ -659,14 +685,14 @@ export default function App() {
       ]);
       cancelEditCrew();
     } catch (e) {
-      alert("Failed to save crew member:\n" + String(e.message || e));
+      alert("Failed to save crew member:\n" + getErrorMessage(e));
     } finally {
       setEditCrewSaving(false);
     }
   }
 
   // Training group create
-  async function createTrainingGroup(name) {
+  async function createTrainingGroup(name: string) {
     const clean = String(name || "").trim();
     if (!clean) throw new Error("Group name cannot be blank.");
 
@@ -681,7 +707,7 @@ export default function App() {
     await loadTrainingGroups(true);
 
     const found = (trainingGroups || []).find(
-      (g) => String(g.name || "").toLowerCase() === clean.toLowerCase()
+      (g: AnyRow) => String(g.name || "").toLowerCase() === clean.toLowerCase()
     );
     if (found?.id != null) return found.id;
 
@@ -693,12 +719,12 @@ export default function App() {
     );
 
     const freshFound = (fresh || []).find(
-      (g) => String(g.name || "").toLowerCase() === clean.toLowerCase()
+      (g: AnyRow) => String(g.name || "").toLowerCase() === clean.toLowerCase()
     );
     return freshFound?.id ?? null;
   }
 
-  async function deleteTrainingDefinition(t) {
+  async function deleteTrainingDefinition(t: AnyRow) {
     const ok = window.confirm(
       `Delete training?\n\nID: ${t.id}\nName: ${t.name}\n\nThis may also remove related requirements and training records if your database is set to cascade.`
     );
@@ -727,13 +753,13 @@ export default function App() {
         setRecordsTrainingId("ALL");
       if (editingTrainingId === t.id) cancelEditTraining();
     } catch (e) {
-      alert("Failed to delete training:\n" + String(e.message || e));
-      setTrainingsError(String(e.message || e));
+      alert("Failed to delete training:\n" + getErrorMessage(e));
+      setTrainingsError(getErrorMessage(e));
       setTrainingsLoading(false);
     }
   }
 
-  function startEditTraining(t) {
+  function startEditTraining(t: AnyRow) {
     setEditingTrainingId(t.id);
     setEditTrainingName(t.name || "");
     setEditTrainingActive(t.active ? "TRUE" : "FALSE");
@@ -752,7 +778,7 @@ export default function App() {
     setEditTrainingGroupId("");
   }
 
-  async function saveEditTraining(t) {
+  async function saveEditTraining(t: AnyRow) {
     const newName = (editTrainingName || "").trim();
     if (!newName) {
       alert("Training name cannot be blank.");
@@ -810,7 +836,7 @@ export default function App() {
 
       cancelEditTraining();
     } catch (e) {
-      alert("Failed to save training:\n" + String(e.message || e));
+      alert("Failed to save training:\n" + getErrorMessage(e));
     } finally {
       setEditTrainingSaving(false);
     }
@@ -871,14 +897,14 @@ export default function App() {
 
       setAddTrackOpen(false);
     } catch (e) {
-      alert("Failed to add track:\n" + String(e.message || e));
-      setTracksError(String(e.message || e));
+      alert("Failed to add track:\n" + getErrorMessage(e));
+      setTracksError(getErrorMessage(e));
     } finally {
       setAddingTrack(false);
     }
   }
 
-  function startEditTrack(t) {
+  function startEditTrack(t: AnyRow) {
     setEditingTrackId(t.id);
     setEditTrackName(t.name || "");
     setEditTrackActive(t.active ? "TRUE" : "FALSE");
@@ -890,7 +916,7 @@ export default function App() {
     setEditTrackActive("TRUE");
   }
 
-  async function saveEditTrack(t) {
+  async function saveEditTrack(t: AnyRow) {
     const newName = (editTrackName || "").trim();
     if (!newName) {
       alert("Track name cannot be blank.");
@@ -922,13 +948,13 @@ export default function App() {
 
       cancelEditTrack();
     } catch (e) {
-      alert("Failed to save track:\n" + String(e.message || e));
+      alert("Failed to save track:\n" + getErrorMessage(e));
     } finally {
       setEditTrackSaving(false);
     }
   }
 
-  async function deleteTrackDefinition(t) {
+  async function deleteTrackDefinition(t: AnyRow) {
     const ok = window.confirm(
       `Delete track?\n\nID: ${t.id}\nName: ${t.name}\n\nThis may also remove related requirements, signoffs, and training records if your database is set to cascade.`
     );
@@ -959,13 +985,13 @@ export default function App() {
       if (String(recordsTrackId) === String(t.id)) setRecordsTrackId("ALL");
       if (editingTrackId === t.id) cancelEditTrack();
     } catch (e) {
-      alert("Failed to delete track:\n" + String(e.message || e));
-      setTracksError(String(e.message || e));
+      alert("Failed to delete track:\n" + getErrorMessage(e));
+      setTracksError(getErrorMessage(e));
       setTracksLoading(false);
     }
   }
 
-  async function toggleTrackActive(trackRow) {
+  async function toggleTrackActive(trackRow: AnyRow) {
     if (editingTrackId === trackRow.id) return;
 
     const newActive = !trackRow.active;
@@ -992,7 +1018,7 @@ export default function App() {
         loadTrainingRecords(true),
       ]);
     } catch (e) {
-      alert("Failed to update track active:\n" + String(e.message || e));
+      alert("Failed to update track active:\n" + getErrorMessage(e));
       setTracks((prev) =>
         prev.map((t) =>
           t.id === trackRow.id ? { ...t, active: trackRow.active } : t
@@ -1001,7 +1027,11 @@ export default function App() {
     }
   }
 
-  async function updateTrackColor(trackRow, nextHexOrEmpty, opts = {}) {
+  async function updateTrackColor(
+    trackRow: AnyRow,
+    nextHexOrEmpty: string | null,
+    opts: { preview?: boolean } = {}
+  ) {
     const previewOnly = !!opts.preview;
 
     const next = (nextHexOrEmpty || "").trim();
@@ -1027,25 +1057,41 @@ export default function App() {
         "/rest/v1/v_training_dashboard_with_signer",
       ]);
     } catch (e) {
-      alert("Failed to update track color:\n" + String(e.message || e));
+      alert("Failed to update track color:\n" + getErrorMessage(e));
       await loadTracks(true);
     }
   }
 
-  const isQualifiedStatus = (status) =>
-    status === "Yes" || status === "Training";
+  const {
+    isQualifiedStatus,
+    crewById,
+    trackById,
+    trainingById,
+    crewDepartments,
+    visibleCrew,
+    visibleSignoffs,
+    visibleTrainingRecords,
+    requirementsGroupedByTraining,
+    requirementsGroupedByTrack,
+  } = useAppDerived({
+    crew,
+    tracks,
+    trainings,
+    requirements,
+    signoffs,
+    trainingRecords,
+    crewNameFilter,
+    crewDeptFilter,
+    crewStatusFilter,
+    signoffsCrewId,
+    signoffsTrackId,
+    signoffsStatusFilter,
+    recordsCrewId,
+    recordsTrackId,
+    recordsTrainingId,
+  });
 
-  const crewById = useMemo(() => new Map(crew.map((c) => [c.id, c])), [crew]);
-  const trackById = useMemo(
-    () => new Map(tracks.map((t) => [t.id, t])),
-    [tracks]
-  );
-  const trainingById = useMemo(
-    () => new Map(trainings.map((t) => [t.id, t])),
-    [trainings]
-  );
-
-  async function deleteRequirement(row) {
+  async function deleteRequirement(row: AnyRow) {
     const trackName = trackById.get(row.trackId)?.name || row.trackId;
     const trainingName =
       trainingById.get(row.trainingId)?.name || row.trainingId;
@@ -1071,9 +1117,42 @@ export default function App() {
 
       await Promise.all([loadRequirements(true), loadTrainingRecords(true)]);
     } catch (e) {
-      alert("Failed to delete requirement:\n" + String(e.message || e));
-      setRequirementsError(String(e.message || e));
+      alert("Failed to delete requirement:\n" + getErrorMessage(e));
+      setRequirementsError(getErrorMessage(e));
       setRequirementsLoading(false);
+    }
+  }
+
+  async function toggleRequirementRow(row: AnyRow) {
+    const nextActive = !row.active;
+
+    setRequirements((prev) =>
+      prev.map((r: AnyRow) =>
+        r.id === row.id ? { ...r, active: nextActive } : r
+      )
+    );
+
+    try {
+      await supabasePatch(
+        `/rest/v1/track_training_requirements?id=eq.${row.id}`,
+        { is_requirement_active: nextActive }
+      );
+
+      invalidateMany([
+        "/rest/v1/track_training_requirements",
+        "/rest/v1/crew_training_records",
+        "/rest/v1/v_training_dashboard_with_signer",
+      ]);
+
+      await Promise.all([loadRequirements(true), loadTrainingRecords(true)]);
+    } catch (e) {
+      alert("Failed to update requirement:\n" + getErrorMessage(e));
+      setRequirementsError(getErrorMessage(e));
+      setRequirements((prev) =>
+        prev.map((r: AnyRow) =>
+          r.id === row.id ? { ...r, active: row.active } : r
+        )
+      );
     }
   }
 
@@ -1118,14 +1197,14 @@ export default function App() {
 
       await Promise.all([loadRequirements(true), loadTrainingRecords(true)]);
     } catch (e) {
-      alert("Failed to add requirement:\n" + String(e.message || e));
-      setRequirementsError(String(e.message || e));
+      alert("Failed to add requirement:\n" + getErrorMessage(e));
+      setRequirementsError(getErrorMessage(e));
     } finally {
       setReqAdding(false);
     }
   }
 
-  async function updateSignoffStatus(signoffRow, newStatus) {
+  async function updateSignoffStatus(signoffRow: AnyRow, newStatus: string) {
     setSignoffs((prev) =>
       prev.map((s) =>
         s.id === signoffRow.id ? { ...s, status: newStatus } : s
@@ -1148,7 +1227,7 @@ export default function App() {
 
       await Promise.all([loadSignoffs(true), loadTrainingRecords(true)]);
     } catch (e) {
-      alert("Failed to update signoff:\n" + String(e.message || e));
+      alert("Failed to update signoff:\n" + getErrorMessage(e));
       setSignoffs((prev) =>
         prev.map((s) =>
           s.id === signoffRow.id ? { ...s, status: signoffRow.status } : s
@@ -1157,171 +1236,10 @@ export default function App() {
     }
   }
 
-  const crewDepartments = useMemo(() => {
-    const set = new Set();
-    crew.forEach((c) => {
-      const d = (c.dept || "").trim();
-      if (d) set.add(d);
-    });
-    return Array.from(set).sort();
-  }, [crew]);
-
-  const visibleCrew = useMemo(() => {
-    let rows = crew;
-
-    if (crewNameFilter !== "ALL") {
-      const idNum = Number(crewNameFilter);
-      rows = rows.filter((c) => c.id === idNum);
-    }
-    if (crewDeptFilter !== "ALL") {
-      rows = rows.filter((c) => (c.dept || "") === crewDeptFilter);
-    }
-    if (crewStatusFilter !== "ALL") {
-      rows = rows.filter((c) =>
-        crewStatusFilter === "Active" ? c.active : !c.active
-      );
-    }
-    return rows;
-  }, [crew, crewNameFilter, crewDeptFilter, crewStatusFilter]);
-
-  const visibleSignoffs = useMemo(() => {
-    let rows = signoffs;
-
-    if (signoffsCrewId !== "ALL") {
-      const crewIdNum = Number(signoffsCrewId);
-      rows = rows.filter((s) => s.crewId === crewIdNum);
-    }
-    if (signoffsTrackId !== "ALL") {
-      const trackIdNum = Number(signoffsTrackId);
-      rows = rows.filter((s) => s.trackId === trackIdNum);
-    }
-    if (signoffsStatusFilter !== "ALL") {
-      rows = rows.filter((s) => s.status === signoffsStatusFilter);
-    }
-    return rows;
-  }, [signoffs, signoffsCrewId, signoffsTrackId, signoffsStatusFilter]);
-
-  const visibleTrainingRecords = useMemo(() => {
-    let rows = trainingRecords;
-
-    if (recordsCrewId !== "ALL") {
-      const idNum = Number(recordsCrewId);
-      rows = rows.filter((r) => r.crewId === idNum);
-    }
-    if (recordsTrackId !== "ALL") {
-      const idNum = Number(recordsTrackId);
-      rows = rows.filter((r) => r.trackId === idNum);
-    }
-    if (recordsTrainingId !== "ALL") {
-      const idNum = Number(recordsTrainingId);
-      rows = rows.filter((r) => r.trainingId === idNum);
-    }
-
-    const rank = (r) => {
-      if (r.status === "Training Overdue") return 0;
-      if (r.status === "Training Due") return 1;
-      return 2;
-    };
-
-    rows = [...rows].sort((a, b) => {
-      const ra = rank(a);
-      const rb = rank(b);
-      if (ra !== rb) return ra - rb;
-
-      if (ra === 0) {
-        const ao = Number(a.daysOverdue ?? 0);
-        const bo = Number(b.daysOverdue ?? 0);
-        if (ao !== bo) return bo - ao;
-      }
-
-      if (ra === 1) {
-        const au =
-          a.daysUntilDue == null
-            ? Number.POSITIVE_INFINITY
-            : Number(a.daysUntilDue);
-        const bu =
-          b.daysUntilDue == null
-            ? Number.POSITIVE_INFINITY
-            : Number(b.daysUntilDue);
-        if (au !== bu) return au - bu;
-      }
-
-      const ac = String(a.crewName || "");
-      const bc = String(b.crewName || "");
-      const ccmp = ac.localeCompare(bc);
-      if (ccmp !== 0) return ccmp;
-
-      const at = String(a.trackName || "");
-      const bt = String(b.trackName || "");
-      const tcmp = at.localeCompare(bt);
-      if (tcmp !== 0) return tcmp;
-
-      const atr = String(a.trainingName || "");
-      const btr = String(b.trainingName || "");
-      return atr.localeCompare(btr);
-    });
-
-    return rows;
-  }, [trainingRecords, recordsCrewId, recordsTrackId, recordsTrainingId]);
-
-  const requirementsGroupedByTraining = useMemo(() => {
-    const map = new Map();
-
-    for (const r of requirements) {
-      const trainingName =
-        trainingById.get(r.trainingId)?.name || String(r.trainingId);
-      const trackName = trackById.get(r.trackId)?.name || String(r.trackId);
-
-      if (!map.has(r.trainingId)) {
-        map.set(r.trainingId, {
-          trainingId: r.trainingId,
-          trainingName,
-          items: [],
-        });
-      }
-      map.get(r.trainingId).items.push({ ...r, trackName });
-    }
-
-    for (const g of map.values()) {
-      g.items.sort((a, b) =>
-        String(a.trackName).localeCompare(String(b.trackName))
-      );
-    }
-
-    return Array.from(map.values()).sort((a, b) =>
-      String(a.trainingName).localeCompare(String(b.trainingName))
-    );
-  }, [requirements, trainingById, trackById]);
-
-  const requirementsGroupedByTrack = useMemo(() => {
-    const map = new Map();
-
-    for (const r of requirements) {
-      const trackName = trackById.get(r.trackId)?.name || String(r.trackId);
-      const trainingName =
-        trainingById.get(r.trainingId)?.name || String(r.trainingId);
-
-      if (!map.has(r.trackId)) {
-        map.set(r.trackId, { trackId: r.trackId, trackName, items: [] });
-      }
-      map.get(r.trackId).items.push({ ...r, trainingName });
-    }
-
-    for (const g of map.values()) {
-      g.items.sort((a, b) =>
-        String(a.trainingName).localeCompare(String(b.trainingName))
-      );
-    }
-
-    return Array.from(map.values()).sort((a, b) =>
-      String(a.trackName).localeCompare(String(b.trackName))
-    );
-  }, [requirements, trainingById, trackById]);
-
-  function isTrainingExpanded(trainingId) {
+  function isTrainingExpanded(trainingId: number) {
     return expandedTrainingIds.has(trainingId);
   }
-  function toggleTrainingExpanded(trainingId) {
+  function toggleTrainingExpanded(trainingId: number) {
     setExpandedTrainingIds((prev) => {
       const next = new Set(prev);
       if (next.has(trainingId)) next.delete(trainingId);
@@ -1338,10 +1256,10 @@ export default function App() {
     setExpandedTrainingIds(new Set());
   }
 
-  function isReqTrackExpanded(trackId) {
+  function isReqTrackExpanded(trackId: number) {
     return expandedReqTrackIds.has(trackId);
   }
-  function toggleReqTrackExpanded(trackId) {
+  function toggleReqTrackExpanded(trackId: number) {
     setExpandedReqTrackIds((prev) => {
       const next = new Set(prev);
       if (next.has(trackId)) next.delete(trackId);
@@ -1358,7 +1276,7 @@ export default function App() {
     setExpandedReqTrackIds(new Set());
   }
 
-  const tabLabel = (key) => {
+  const tabLabel = (key: TabId) => {
     if (key === "crew") return "Crew";
     if (key === "trackDefs") return "Tracks";
     if (key === "trainingDefs") return "Trainings";
@@ -1369,28 +1287,42 @@ export default function App() {
     return key;
   };
 
+  const markCompleteCrewName =
+    markCompleteRow?.crewName ||
+    crewById.get(markCompleteRow?.crewId)?.name ||
+    "";
+  const markCompleteTrackName =
+    markCompleteRow?.trackName ||
+    trackById.get(markCompleteRow?.trackId)?.name ||
+    "";
+  const markCompleteTrainingName =
+    markCompleteRow?.trainingName ||
+    trainingById.get(markCompleteRow?.trainingId)?.name ||
+    "";
+
+  const historyTitle = historyContext?.trainingName || "";
+  const historySubtitle = `${historyContext?.crewName || ""} · ${
+    historyContext?.trackName || ""
+  }`;
+
   return (
     <div style={S.page}>
-      <AddCrewModal
+      <AppModals
         S={S}
-        isOpen={addCrewOpen}
-        onClose={closeAddCrew}
-        isBusy={addingCrew}
         departments={DEPARTMENTS}
+        addCrewOpen={addCrewOpen}
+        closeAddCrew={closeAddCrew}
+        addingCrew={addingCrew}
         newCrewName={newCrewName}
         setNewCrewName={setNewCrewName}
         newCrewDept={newCrewDept}
         setNewCrewDept={setNewCrewDept}
         newCrewStatus={newCrewStatus}
         setNewCrewStatus={setNewCrewStatus}
-        onConfirm={confirmAddCrewMember}
-      />
-
-      <AddTrainingModal
-        S={S}
-        isOpen={addTrainingOpen}
-        onClose={closeAddTraining}
-        isBusy={addingTraining}
+        confirmAddCrewMember={confirmAddCrewMember}
+        addTrainingOpen={addTrainingOpen}
+        closeAddTraining={closeAddTraining}
+        addingTraining={addingTraining}
         newTrainingId={newTrainingId}
         setNewTrainingId={setNewTrainingId}
         newTrainingName={newTrainingName}
@@ -1401,154 +1333,55 @@ export default function App() {
         setNewTrainingExpiryMode={setNewTrainingExpiryMode}
         newTrainingExpiryWeeks={newTrainingExpiryWeeks}
         setNewTrainingExpiryWeeks={setNewTrainingExpiryWeeks}
-        onConfirm={confirmAddTraining}
-      />
-
-      <AddTrackModal
-        S={S}
-        isOpen={addTrackOpen}
-        onClose={closeAddTrack}
-        isBusy={addingTrack}
+        confirmAddTraining={confirmAddTraining}
+        addTrackOpen={addTrackOpen}
+        closeAddTrack={closeAddTrack}
+        addingTrack={addingTrack}
         newTrackId={newTrackId}
         setNewTrackId={setNewTrackId}
         newTrackName={newTrackName}
         setNewTrackName={setNewTrackName}
         newTrackActive={newTrackActive}
         setNewTrackActive={setNewTrackActive}
-        onConfirm={confirmAddTrack}
-      />
-
-      <MarkCompleteModal
-        S={S}
-        isOpen={markCompleteOpen}
-        onClose={closeMarkComplete}
-        isBusy={markCompleteSaving}
-        crewName={
-          markCompleteRow?.crewName ||
-          crewById.get(markCompleteRow?.crewId)?.name ||
-          ""
-        }
-        trackName={
-          markCompleteRow?.trackName ||
-          trackById.get(markCompleteRow?.trackId)?.name ||
-          ""
-        }
-        trainingName={
-          markCompleteRow?.trainingName ||
-          trainingById.get(markCompleteRow?.trainingId)?.name ||
-          ""
-        }
-        completedDate={markCompleteDate}
-        setCompletedDate={setMarkCompleteDate}
-        signoffBy={markCompleteBy}
-        setSignoffBy={setMarkCompleteBy}
-        notes={markCompleteNotes}
-        setNotes={setMarkCompleteNotes}
-        onConfirm={confirmMarkComplete}
-      />
-
-      <HistoryModal
-        S={S}
-        isOpen={historyOpen}
-        onClose={closeHistory}
-        isBusy={historyBusy}
-        title={historyContext?.trainingName || ""}
-        subtitle={`${historyContext?.crewName || ""} · ${
-          historyContext?.trackName || ""
-        }`}
-        rows={historyRows}
-        error={historyError}
-        onRefresh={refreshHistory}
-        onDeleteRow={deleteHistoryRow}
+        confirmAddTrack={confirmAddTrack}
+        markCompleteOpen={markCompleteOpen}
+        closeMarkComplete={closeMarkComplete}
+        markCompleteSaving={markCompleteSaving}
+        markCompleteCrewName={markCompleteCrewName}
+        markCompleteTrackName={markCompleteTrackName}
+        markCompleteTrainingName={markCompleteTrainingName}
+        markCompleteDate={markCompleteDate}
+        setMarkCompleteDate={setMarkCompleteDate}
+        markCompleteBy={markCompleteBy}
+        setMarkCompleteBy={setMarkCompleteBy}
+        markCompleteNotes={markCompleteNotes}
+        setMarkCompleteNotes={setMarkCompleteNotes}
+        confirmMarkComplete={confirmMarkComplete}
+        historyOpen={historyOpen}
+        closeHistory={closeHistory}
+        historyBusy={historyBusy}
+        historyTitle={historyTitle}
+        historySubtitle={historySubtitle}
+        historyRows={historyRows}
+        historyError={historyError}
+        refreshHistory={refreshHistory}
+        deleteHistoryRow={deleteHistoryRow}
       />
 
       <div style={S.shell}>
-        <div style={S.topBar}>
-          <div style={S.headerRow}>
-            <div style={S.titleBlock}>
-              <div
-                style={{
-                  height: 68,
-                  padding: "0 14px",
-                  borderRadius: 14,
-                  background:
-                    "linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.54) 100%)",
-                  border: "1px solid rgba(255,255,255,0.10)",
-                  boxShadow:
-                    "0 3px 8px rgba(0,0,0,0.20), inset 0 -1px 0 rgba(255,255,255,0.0)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flex: "0 0 auto",
-                  flexShrink: 0,
-                }}
-                title="BluePrint"
-              >
-                <img
-                  src={blueprintIcon}
-                  alt="BluePrint"
-                  style={{
-                    height: 54,
-                    maxWidth: 190,
-                    objectFit: "contain",
-                    display: "block",
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ opacity: 0.85, fontSize: 13 }}>Location</div>
-
-              <select
-                value={activeLocationId ?? ""}
-                onChange={(e) => setActiveLocationId(Number(e.target.value))}
-                disabled={locationsLoading || !locations.length}
-                style={{
-                  height: 36,
-                  borderRadius: 10,
-                  padding: "0 10px",
-                  background: "rgba(255,255,255,0.08)",
-                  color: "white",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  outline: "none",
-                }}
-              >
-                {locations.map((l) => (
-                  <option key={l.id} value={l.id} style={{ color: "black" }}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
-
-              {!!locationsError && (
-                <div style={{ color: "rgba(255,120,120,0.95)", fontSize: 12 }}>
-                  {locationsError}
-                </div>
-              )}
-            </div>
-
-            <div style={S.pillBar}>
-              {TABS.map((t) => (
-                <div
-                  key={t}
-                  style={S.tabPill(activeTab === t)}
-                  onClick={() => setActiveTab(t)}
-                  onMouseDown={(e) => {
-                    e.currentTarget.style.transform = "scale(0.98)";
-                    setTimeout(() => {
-                      if (e.currentTarget)
-                        e.currentTarget.style.transform = "scale(1)";
-                    }, 120);
-                  }}
-                  title={tabLabel(t)}
-                >
-                  {tabLabel(t)}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <AppHeader
+          S={S}
+          blueprintIcon={blueprintIcon}
+          activeLocationId={activeLocationId}
+          setActiveLocationId={setActiveLocationId}
+          locations={locations}
+          locationsLoading={locationsLoading}
+          locationsError={locationsError}
+          tabs={TABS}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          tabLabel={tabLabel}
+        />
 
         <div style={S.contentGrid}>
           {activeTab === "crew" && (
@@ -1688,6 +1521,7 @@ export default function App() {
               loadTracks={loadTracks}
               loadTrainings={loadTrainings}
               loadRequirements={loadRequirements}
+              toggleRequirementRow={toggleRequirementRow}
               deleteRequirement={deleteRequirement}
             />
           )}
@@ -1698,11 +1532,7 @@ export default function App() {
               crew={crew}
               tracks={tracks}
               trainings={trainings}
-              trainingRecords={trainingRecords}
               visibleTrainingRecords={visibleTrainingRecords}
-              crewById={crewById}
-              trackById={trackById}
-              trainingById={trainingById}
               recordsLoading={recordsLoading}
               recordsError={recordsError}
               recordsCrewId={recordsCrewId}

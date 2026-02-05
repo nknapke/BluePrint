@@ -1,12 +1,33 @@
-// src/lib/supabaseRest.js
+// src/lib/supabaseRest.ts
+type SupabaseRestClientOptions = {
+  supabaseUrl: string;
+  anonKey: string;
+  getCacheMs?: number;
+};
+
+type CacheEntry = { ts: number; data: any };
+
+type GetOptions = {
+  cacheKey?: string;
+  cacheTag?: string;
+  cacheMs?: number;
+  bypassCache?: boolean;
+  headers?: Record<string, string>;
+};
+
+type WriteOptions = {
+  headers?: Record<string, string>;
+  prefer?: string;
+};
+
 export function createSupabaseRestClient({
   supabaseUrl,
   anonKey,
   getCacheMs = 30000,
-}) {
-  const getCache = new Map();
+}: SupabaseRestClientOptions) {
+  const getCache = new Map<string, CacheEntry>();
 
-  function baseHeaders(extra = {}) {
+  function baseHeaders(extra: Record<string, string> = {}) {
     return {
       apikey: anonKey,
       Authorization: `Bearer ${anonKey}`,
@@ -14,7 +35,7 @@ export function createSupabaseRestClient({
     };
   }
 
-  async function readBody(res) {
+  async function readBody(res: Response) {
     const text = await res.text();
     if (!text) return null;
     try {
@@ -24,7 +45,7 @@ export function createSupabaseRestClient({
     }
   }
 
-  async function supabaseGet(path, opts = {}) {
+  async function supabaseGet(path: string, opts: GetOptions = {}) {
     const {
       cacheKey,
       cacheTag = "",
@@ -51,7 +72,7 @@ export function createSupabaseRestClient({
     return data;
   }
 
-  async function supabasePatch(path, bodyObj, opts = {}) {
+  async function supabasePatch(path: string, bodyObj: any, opts: WriteOptions = {}) {
     const { headers = {}, prefer = "return=representation" } = opts;
 
     const res = await fetch(`${supabaseUrl}${path}`, {
@@ -71,7 +92,7 @@ export function createSupabaseRestClient({
     return data;
   }
 
-  async function supabasePost(path, bodyObj, opts = {}) {
+  async function supabasePost(path: string, bodyObj: any, opts: WriteOptions = {}) {
     const { headers = {}, prefer = "return=representation" } = opts;
 
     const res = await fetch(`${supabaseUrl}${path}`, {
@@ -94,7 +115,7 @@ export function createSupabaseRestClient({
     return data;
   }
 
-  async function supabaseDelete(path, opts = {}) {
+  async function supabaseDelete(path: string, opts: WriteOptions = {}) {
     const { headers = {}, prefer = "return=minimal" } = opts;
 
     const res = await fetch(`${supabaseUrl}${path}`, {
@@ -109,7 +130,7 @@ export function createSupabaseRestClient({
     return true;
   }
 
-  function invalidateGetCache(prefix) {
+  function invalidateGetCache(prefix: string) {
     const keys = Array.from(getCache.keys());
     for (const k of keys) {
       if (k.startsWith(prefix)) getCache.delete(k);

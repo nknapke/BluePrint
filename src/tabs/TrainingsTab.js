@@ -3,125 +3,8 @@
 // Adds a new grouping view: By Group (and keeps By Status as an option)
 
 import { useMemo, useState, useCallback, useEffect } from "react";
-
-/** ---------- Small hook: "default expand all" + keep keys in sync ---------- */
-function useExpandableKeys(keys, { defaultExpanded = true } = {}) {
-  const [expanded, setExpanded] = useState(() =>
-    defaultExpanded ? new Set(keys) : new Set()
-  );
-  const [userTouched, setUserTouched] = useState(false);
-
-  useEffect(() => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-
-      if (!userTouched) {
-        next.clear();
-        for (const k of keys) next.add(k);
-        return next;
-      }
-
-      let changed = false;
-
-      for (const k of keys) {
-        if (!next.has(k)) {
-          next.add(k);
-          changed = true;
-        }
-      }
-
-      for (const k of Array.from(next)) {
-        if (!keys.includes(k)) {
-          next.delete(k);
-          changed = true;
-        }
-      }
-
-      return changed ? next : prev;
-    });
-  }, [keys.join("|"), userTouched]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const toggle = useCallback((key) => {
-    setUserTouched(true);
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
-
-  const expandAll = useCallback(() => {
-    setUserTouched(true);
-    setExpanded(new Set(keys));
-  }, [keys]);
-
-  const collapseAll = useCallback(() => {
-    setUserTouched(true);
-    setExpanded(new Set());
-  }, []);
-
-  const resetToDefault = useCallback(() => {
-    setUserTouched(false);
-    setExpanded(new Set(keys));
-  }, [keys]);
-
-  return { expanded, toggle, expandAll, collapseAll, resetToDefault };
-}
-
-/** ---------- UI bits (same vibe) ---------- */
-
-function Segmented({ value, onChange, options }) {
-  return (
-    <div
-      style={{
-        display: "inline-flex",
-        padding: 4,
-        borderRadius: 14,
-        border: "1px solid rgba(255,255,255,0.10)",
-        background: "rgba(0,0,0,0.18)",
-        boxShadow: "0 12px 30px rgba(0,0,0,0.16)",
-      }}
-    >
-      {options.map((o) => {
-        const active = value === o.value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            onClick={() => onChange(o.value)}
-            style={{
-              padding: "8px 12px",
-              borderRadius: 12,
-              border: "1px solid transparent",
-              background: active
-                ? "linear-gradient(180deg, rgba(0,122,255,0.20) 0%, rgba(255,255,255,0.06) 100%)"
-                : "transparent",
-              color: active
-                ? "rgba(255,255,255,0.95)"
-                : "rgba(255,255,255,0.82)",
-              fontSize: 12,
-              fontWeight: 900,
-              letterSpacing: "-0.01em",
-              cursor: "pointer",
-              transition: "background 160ms ease, transform 120ms ease",
-              whiteSpace: "nowrap",
-            }}
-            onMouseDown={(e) => {
-              e.currentTarget.style.transform = "scale(0.98)";
-              setTimeout(() => {
-                if (e.currentTarget)
-                  e.currentTarget.style.transform = "scale(1)";
-              }, 120);
-            }}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+import { Segmented } from "../components/ui/Segmented";
+import { useExpandableKeys } from "../hooks/useExpandableKeys";
 
 /** ---------- helpers ---------- */
 
@@ -140,7 +23,7 @@ export default function TrainingsTab({
   trainingsLoading,
   trainingsError,
 
-  trainingGroups,
+  trainingGroups = /** @type {any[]} */ ([]),
   trainingGroupsLoading,
   trainingGroupsError,
   createTrainingGroup,
