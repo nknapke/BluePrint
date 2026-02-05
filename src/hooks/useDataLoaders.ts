@@ -28,6 +28,7 @@ type LoadListArgs<Row, Mapped> = {
   setRows: SetRows<Mapped>;
   useLocationFilter?: boolean;
   useCache?: boolean;
+  silent?: boolean;
 };
 
 type UseDataLoadersParams = {
@@ -243,13 +244,16 @@ export function useDataLoaders({
       setRows,
       useLocationFilter = true,
       useCache = true,
+      silent = false,
     }: LoadListArgs<Row, Mapped>) => {
       if (key && !force && !shouldFetch(key)) return;
 
-      safeSet(() => {
-        setLoading(true);
-        setError("");
-      });
+      if (!silent) {
+        safeSet(() => {
+          setLoading(true);
+          setError("");
+        });
+      }
 
       try {
         const finalPath = useLocationFilter ? withLoc(path) : path;
@@ -259,9 +263,16 @@ export function useDataLoaders({
 
         if (key) markFetched(key);
       } catch (e) {
-        safeSet(() => setError(getErrorMessage(e)));
+        if (!silent) {
+          safeSet(() => setError(getErrorMessage(e)));
+        } else {
+          // Keep UI stable during background refresh failures
+          console.warn("Background refresh failed", e);
+        }
       } finally {
-        safeSet(() => setLoading(false));
+        if (!silent) {
+          safeSet(() => setLoading(false));
+        }
       }
     },
     [markFetched, opts, safeSet, shouldFetch, supabaseGet, withLoc]
@@ -418,7 +429,7 @@ export function useDataLoaders({
   );
 
   const loadSignoffs = useCallback(
-    async (force = false) => {
+    async (force = false, opts: { silent?: boolean } = {}) => {
       await loadList({
         key: "signoffs",
         force,
@@ -433,13 +444,14 @@ export function useDataLoaders({
           active: s.is_signoff_active ?? null,
         }),
         setRows: setSignoffs,
+        silent: opts.silent,
       });
     },
     [loadList, setSignoffs, setSignoffsError, setSignoffsLoading]
   );
 
   const loadTrainingRecords = useCallback(
-    async (force = false) => {
+    async (force = false, opts: { silent?: boolean } = {}) => {
       await loadList({
         key: "records",
         force,
@@ -466,6 +478,7 @@ export function useDataLoaders({
           lastSignedOffOn: r.last_signed_off_on,
         }),
         setRows: setTrainingRecords,
+        silent: opts.silent,
       });
     },
     [loadList, setRecordsError, setRecordsLoading, setTrainingRecords]

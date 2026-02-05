@@ -1129,13 +1129,11 @@ export default function App() {
   }
 
   const {
-    isQualifiedStatus,
     crewById,
     trackById,
     trainingById,
     crewDepartments,
     visibleCrew,
-    visibleSignoffs,
     visibleTrainingRecords,
     requirementsGroupedByTraining,
     requirementsGroupedByTrack,
@@ -1291,7 +1289,8 @@ export default function App() {
         "/rest/v1/v_training_dashboard_with_signer",
       ]);
 
-      await Promise.all([loadSignoffs(true), loadTrainingRecords(true)]);
+      void loadSignoffs(true, { silent: true });
+      void loadTrainingRecords(true, { silent: true });
     } catch (e) {
       alert("Failed to update signoff:\n" + getErrorMessage(e));
       setSignoffs((prev) =>
@@ -1550,7 +1549,6 @@ export default function App() {
               crew={crew}
               tracks={tracks}
               signoffs={signoffs}
-              visibleSignoffs={visibleSignoffs}
               signoffsLoading={signoffsLoading}
               signoffsError={signoffsError}
               signoffsCrewId={signoffsCrewId}
@@ -1561,7 +1559,6 @@ export default function App() {
               setSignoffsStatusFilter={setSignoffsStatusFilter}
               loadSignoffs={loadSignoffs}
               updateSignoffStatus={updateSignoffStatus}
-              isQualifiedStatus={isQualifiedStatus}
             />
           )}
 
