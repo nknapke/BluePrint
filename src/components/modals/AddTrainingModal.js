@@ -12,6 +12,12 @@ export default function AddTrainingModal({
   newTrainingActive,
   setNewTrainingActive,
 
+  trainingGroups = /** @type {import("../../types/domain").TrainingGroup[]} */ (
+    []
+  ),
+  newTrainingGroupId,
+  setNewTrainingGroupId,
+
   newTrainingExpiryMode,
   setNewTrainingExpiryMode,
   newTrainingExpiryWeeks,
@@ -22,6 +28,13 @@ export default function AddTrainingModal({
   if (!isOpen) return null;
 
   const expiryMode = newTrainingExpiryMode || "NEVER";
+  const sortedGroups = Array.isArray(trainingGroups)
+    ? [...trainingGroups].sort((a, b) => {
+        const so = Number(a.sortOrder ?? 9999) - Number(b.sortOrder ?? 9999);
+        if (so !== 0) return so;
+        return String(a.name || "").localeCompare(String(b.name || ""));
+      })
+    : [];
 
   return (
     <div style={S.modalOverlay} onMouseDown={onClose}>
@@ -85,6 +98,23 @@ export default function AddTrainingModal({
                 style={S.input}
                 placeholder="Training name"
               />
+            </div>
+
+            {/* Training Group */}
+            <div>
+              <div style={{ ...S.helper, marginBottom: 6 }}>Group</div>
+              <select
+                value={newTrainingGroupId}
+                onChange={(e) => setNewTrainingGroupId(e.target.value)}
+                style={S.select}
+              >
+                <option value="">Ungrouped</option>
+                {sortedGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name || `Group ${g.id}`}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Expire In */}

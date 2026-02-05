@@ -229,6 +229,8 @@ export default function App() {
     setNewTrainingExpiryMode,
     newTrainingExpiryWeeks,
     setNewTrainingExpiryWeeks,
+    newTrainingGroupId,
+    setNewTrainingGroupId,
     addingTraining,
     setAddingTraining,
 
@@ -371,6 +373,7 @@ export default function App() {
     setNewTrainingActive("TRUE");
     setNewTrainingExpiryMode("NEVER");
     setNewTrainingExpiryWeeks("");
+    setNewTrainingGroupId("");
     setAddTrainingOpen(true);
   }
 
@@ -413,6 +416,18 @@ export default function App() {
       expires_after_weeks = Math.floor(num);
     }
 
+    const groupRaw = String(newTrainingGroupId || "").trim();
+    const training_group_id =
+      groupRaw === ""
+        ? null
+        : Number.isFinite(Number(groupRaw))
+        ? Number(groupRaw)
+        : null;
+    if (groupRaw !== "" && training_group_id == null) {
+      alert("Training group must be a valid number.");
+      return;
+    }
+
     const exists = trainings.some((t) => Number(t.localId) === idNum);
     if (exists) {
       alert("That Training ID already exists.");
@@ -429,7 +444,7 @@ export default function App() {
         training_name: name,
         is_training_active,
         expires_after_weeks,
-        training_group_id: null,
+        training_group_id,
       });
 
       invalidateMany([
@@ -731,6 +746,48 @@ export default function App() {
         String(g.name || "").toLowerCase() === clean.toLowerCase()
     );
     return freshFound?.id ?? null;
+  }
+
+  async function updateTrainingGroup(
+    id: number,
+    patch: { name?: string; sort_order?: number | null }
+  ) {
+    const payload: Record<string, unknown> = {};
+    if (patch.name != null) payload.name = patch.name;
+    if ("sort_order" in patch) payload.sort_order = patch.sort_order;
+
+    if (Object.keys(payload).length === 0) return;
+
+    await supabasePatch(`/rest/v1/training_groups?id=eq.${id}`, payload);
+
+    invalidateMany(["/rest/v1/training_groups"]);
+    await loadTrainingGroups(true);
+  }
+
+  async function deleteTrainingGroup(group: TrainingGroup) {
+    const ok = window.confirm(
+      `Delete training group?\n\n${group.name || "(Unnamed)"}\n\nTrainings in this group will be moved to Ungrouped.`
+    );
+    if (!ok) return;
+
+    try {
+      await supabasePatch(
+        `/rest/v1/training_definitions?training_group_id=eq.${group.id}`,
+        { training_group_id: null },
+        { prefer: "return=minimal" }
+      );
+
+      await supabaseDelete(`/rest/v1/training_groups?id=eq.${group.id}`);
+
+      invalidateMany([
+        "/rest/v1/training_groups",
+        "/rest/v1/training_definitions",
+      ]);
+
+      await Promise.all([loadTrainingGroups(true), loadTrainings(true)]);
+    } catch (e) {
+      alert("Failed to delete group:\n" + getErrorMessage(e));
+    }
   }
 
   async function deleteTrainingDefinition(t: Training) {
@@ -1344,6 +1401,9 @@ export default function App() {
         setNewTrainingName={setNewTrainingName}
         newTrainingActive={newTrainingActive}
         setNewTrainingActive={setNewTrainingActive}
+        trainingGroups={trainingGroups}
+        newTrainingGroupId={newTrainingGroupId}
+        setNewTrainingGroupId={setNewTrainingGroupId}
         newTrainingExpiryMode={newTrainingExpiryMode}
         setNewTrainingExpiryMode={setNewTrainingExpiryMode}
         newTrainingExpiryWeeks={newTrainingExpiryWeeks}
@@ -1463,6 +1523,8 @@ export default function App() {
               trainingGroupsLoading={trainingGroupsLoading}
               trainingGroupsError={trainingGroupsError}
               createTrainingGroup={createTrainingGroup}
+              updateTrainingGroup={updateTrainingGroup}
+              deleteTrainingGroup={deleteTrainingGroup}
               editingTrainingId={editingTrainingId}
               editTrainingName={editTrainingName}
               setEditTrainingName={setEditTrainingName}

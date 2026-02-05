@@ -123,6 +123,7 @@ export function useAppState() {
   const [newTrainingExpiryMode, setNewTrainingExpiryMode] =
     useState<ExpiryMode>("NEVER");
   const [newTrainingExpiryWeeks, setNewTrainingExpiryWeeks] = useState("");
+  const [newTrainingGroupId, setNewTrainingGroupId] = useState("");
   const [addingTraining, setAddingTraining] = useState(false);
 
   // Add Track modal
@@ -283,6 +284,8 @@ export function useAppState() {
     setNewTrainingExpiryMode,
     newTrainingExpiryWeeks,
     setNewTrainingExpiryWeeks,
+    newTrainingGroupId,
+    setNewTrainingGroupId,
     addingTraining,
     setAddingTraining,
 

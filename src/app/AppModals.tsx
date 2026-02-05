@@ -5,6 +5,7 @@ import MarkCompleteModal from "../components/modals/MarkCompleteModal";
 import HistoryModal from "../components/modals/HistoryModal";
 import type { Dispatch, SetStateAction } from "react";
 import type { Dept, ExpiryMode, YesNo } from "./constants";
+import type { TrainingGroup } from "../types/domain";
 
 type Props = {
   S: any;
@@ -30,6 +31,9 @@ type Props = {
   setNewTrainingName: Dispatch<SetStateAction<string>>;
   newTrainingActive: YesNo;
   setNewTrainingActive: Dispatch<SetStateAction<YesNo>>;
+  trainingGroups: TrainingGroup[];
+  newTrainingGroupId: string;
+  setNewTrainingGroupId: Dispatch<SetStateAction<string>>;
   newTrainingExpiryMode: ExpiryMode;
   setNewTrainingExpiryMode: Dispatch<SetStateAction<ExpiryMode>>;
   newTrainingExpiryWeeks: string;
@@ -96,6 +100,9 @@ export function AppModals({
   setNewTrainingName,
   newTrainingActive,
   setNewTrainingActive,
+  trainingGroups,
+  newTrainingGroupId,
+  setNewTrainingGroupId,
   newTrainingExpiryMode,
   setNewTrainingExpiryMode,
   newTrainingExpiryWeeks,
@@ -165,6 +172,9 @@ export function AppModals({
         setNewTrainingName={setNewTrainingName}
         newTrainingActive={newTrainingActive}
         setNewTrainingActive={setNewTrainingActive}
+        trainingGroups={trainingGroups}
+        newTrainingGroupId={newTrainingGroupId}
+        setNewTrainingGroupId={setNewTrainingGroupId}
         newTrainingExpiryMode={newTrainingExpiryMode}
         setNewTrainingExpiryMode={setNewTrainingExpiryMode}
         newTrainingExpiryWeeks={newTrainingExpiryWeeks}
