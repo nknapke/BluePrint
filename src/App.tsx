@@ -34,7 +34,7 @@ import type {
 
 import CrewTab from "./tabs/CrewTab";
 import TracksTab from "./tabs/TracksTab";
-import TrainingHubTab from "./tabs/TrainingHubTab";
+import TrainingsTab from "./tabs/TrainingsTab";
 import SignoffsTab from "./tabs/SignoffsTab";
 import RecordsTab from "./tabs/RecordsTab";
 import PlannerTab from "./tabs/PlannerTab";
@@ -529,6 +529,7 @@ export default function App() {
           loadCrew(true),
           loadTracks(true),
           loadTrainings(true),
+          loadTrainingGroups(true),
           loadTrainingRecords(true),
         ]);
       }
@@ -1343,7 +1344,7 @@ export default function App() {
   const tabLabel = (key: TabId) => {
     if (key === "crew") return "Crew";
     if (key === "trackDefs") return "Tracks";
-    if (key === "trainingHub") return "Training Hub";
+    if (key === "trainingHub") return "Trainings";
     if (key === "signoffs") return "Signoffs";
     if (key === "records") return "Records";
     if (key === "planner") return "Planner";
@@ -1511,7 +1512,7 @@ export default function App() {
           )}
 
           {activeTab === "trainingHub" && (
-            <TrainingHubTab
+            <TrainingsTab
               S={S}
               tracks={tracks}
               trainings={trainings}
@@ -1594,6 +1595,7 @@ export default function App() {
               crew={crew}
               tracks={tracks}
               trainings={trainings}
+              trainingGroups={trainingGroups}
               visibleTrainingRecords={visibleTrainingRecords}
               recordsLoading={recordsLoading}
               recordsError={recordsError}

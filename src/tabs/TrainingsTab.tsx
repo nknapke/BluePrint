@@ -1,18 +1,14 @@
 // TrainingsTab.tsx
-// Keeps ALL existing features (edit, add group inline, pills, search, expand/collapse)
-// Adds a new grouping view: By Group (and keeps By Status as an option)
-
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, Dispatch, MouseEvent, SetStateAction } from "react";
 import { Segmented } from "../components/ui/Segmented";
-import { useExpandableKeys } from "../hooks/useExpandableKeys";
 import { Chevron } from "../components/ui/Chevron";
 import { DotCount } from "../components/ui/DotCount";
 import { FieldLabel } from "../components/ui/FieldLabel";
-import { IdMeta } from "../components/ui/IdMeta";
-import { StatusBadge } from "../components/ui/Badges";
-import type { YesNo } from "../app/constants";
-import type { Training, TrainingGroup } from "../types/domain";
+import { useExpandableKeys } from "../hooks/useExpandableKeys";
+import { hexToRgba, normalizeHex } from "../utils/colors";
+import type { ReqViewMode, YesNo } from "../app/constants";
+import type { Requirement, Track, Training, TrainingGroup } from "../types/domain";
 
 /** ---------- helpers ---------- */
 
@@ -29,9 +25,18 @@ function getErrorMessage(err: unknown) {
   return String(err ?? "Unknown error");
 }
 
-function GroupHeaderIOS({ title, subtitle, open, onToggle, counts }: any) {
+function GroupHeaderIOS({
+  title,
+  subtitle,
+  open,
+  onToggle,
+  counts,
+  accentHex,
+  showCounts = true,
+}: any) {
   const active = counts?.active ?? 0;
   const inactive = counts?.inactive ?? 0;
+  const accent = accentHex ? hexToRgba(accentHex, 0.65) : "";
 
   return (
     <button
@@ -81,15 +86,33 @@ function GroupHeaderIOS({ title, subtitle, open, onToggle, counts }: any) {
       }}
       aria-expanded={open}
     >
+      {accent && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 4,
+            background: `linear-gradient(180deg, ${accent} 0%, rgba(255,255,255,0.06) 100%)`,
+            opacity: 0.95,
+          }}
+        />
+      )}
+
       <div
         style={{
           display: "flex",
           flexDirection: "column",
           gap: 4,
           minWidth: 0,
+          paddingLeft: accent ? 6 : 0,
         }}
       >
-        <div style={{ fontSize: 14, fontWeight: 880, letterSpacing: "-0.01em" }}>
+        <div
+          style={{ fontSize: 14, fontWeight: 880, letterSpacing: "-0.01em" }}
+        >
           {title}
         </div>
         <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.62 }}>
@@ -98,70 +121,29 @@ function GroupHeaderIOS({ title, subtitle, open, onToggle, counts }: any) {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <DotCount
-            color="rgba(52,199,89,0.90)"
-            count={active}
-            title={`Active: ${active}`}
-          />
-          <DotCount
-            color="rgba(142,142,147,0.85)"
-            count={inactive}
-            title={`Inactive: ${inactive}`}
-          />
-        </div>
+        {showCounts && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <DotCount
+              color="rgba(52,199,89,0.90)"
+              count={active}
+              title={`Active: ${active}`}
+            />
+            <DotCount
+              color="rgba(142,142,147,0.85)"
+              count={inactive}
+              title={`Inactive: ${inactive}`}
+            />
+          </div>
+        )}
         <Chevron open={open} />
       </div>
     </button>
   );
 }
 
-/** ---------- Main ---------- */
+/** ---------- Training row ---------- */
 
-type TrainingsTabProps = {
-  S: any;
-  trainings: Training[];
-  trainingsLoading: boolean;
-  trainingsError: string;
-  trainingGroups: TrainingGroup[];
-  trainingGroupsLoading: boolean;
-  trainingGroupsError: string;
-  createTrainingGroup: (name: string) => Promise<number | null>;
-  updateTrainingGroup: (
-    id: number,
-    patch: { name?: string; sort_order?: number | null }
-  ) => Promise<void>;
-  deleteTrainingGroup: (group: TrainingGroup) => Promise<void>;
-  editingTrainingId: number | null;
-  editTrainingName: string;
-  setEditTrainingName: Dispatch<SetStateAction<string>>;
-  editTrainingActive: YesNo;
-  setEditTrainingActive: Dispatch<SetStateAction<YesNo>>;
-  editTrainingSaving: boolean;
-  editTrainingExpiryWeeks: string;
-  setEditTrainingExpiryWeeks: Dispatch<SetStateAction<string>>;
-  editTrainingGroupId: string;
-  setEditTrainingGroupId: Dispatch<SetStateAction<string>>;
-  addTrainingDefinition: () => void;
-  deleteTrainingDefinition: (row: Training) => Promise<void>;
-  startEditTraining: (row: Training) => void;
-  cancelEditTraining: () => void;
-  saveEditTraining: (row: Training) => Promise<void>;
-  loadTrainings: (force?: boolean) => Promise<void>;
-};
-
-type GroupCounts = { active: number; inactive: number };
-
-type GroupedBlock = {
-  key: string;
-  title: string;
-  subtitle: string;
-  sortOrder?: number | null;
-  items: Training[];
-  counts: GroupCounts;
-};
-
-type GroupView = "group" | "status";
+type GroupOption = { value: string; label: string };
 
 type TrainingEditState = {
   editingTrainingId: number | null;
@@ -183,8 +165,6 @@ type TrainingActions = {
   deleteTrainingDefinition: (row: Training) => Promise<void>;
 };
 
-type GroupOption = { value: string; label: string };
-
 function TrainingRowCard({
   S,
   t,
@@ -195,6 +175,8 @@ function TrainingRowCard({
   isFirst,
   isLast,
   canPickGroup,
+  isSelected,
+  onSelect,
 }: {
   S: any;
   t: Training;
@@ -205,19 +187,30 @@ function TrainingRowCard({
   isFirst: boolean;
   isLast: boolean;
   canPickGroup: boolean;
+  isSelected: boolean;
+  onSelect: () => void;
 }) {
   const isEditing = edit.editingTrainingId === t.id;
+  const selectedBg = isSelected
+    ? "linear-gradient(180deg, rgba(0,122,255,0.12) 0%, rgba(0,122,255,0.06) 100%)"
+    : "transparent";
 
   const hoverOn = (e: MouseEvent<HTMLDivElement>) => {
     e.currentTarget.style.transform = "translateY(-1px)";
-    e.currentTarget.style.boxShadow = "0 12px 26px rgba(0,0,0,0.22)";
-    e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+    e.currentTarget.style.boxShadow = isSelected
+      ? "0 16px 40px rgba(0,122,255,0.22)"
+      : "0 12px 26px rgba(0,0,0,0.22)";
+    e.currentTarget.style.background = isSelected
+      ? selectedBg
+      : "rgba(255,255,255,0.03)";
   };
 
   const hoverOff = (e: MouseEvent<HTMLDivElement>) => {
     e.currentTarget.style.transform = "translateY(0)";
-    e.currentTarget.style.boxShadow = "none";
-    e.currentTarget.style.background = "transparent";
+    e.currentTarget.style.boxShadow = isSelected
+      ? "0 12px 30px rgba(0,122,255,0.18)"
+      : "none";
+    e.currentTarget.style.background = selectedBg;
   };
 
   const pressOn = (e: MouseEvent<HTMLDivElement>) => {
@@ -226,6 +219,7 @@ function TrainingRowCard({
       if (e.target.closest("input")) return;
       if (e.target.closest("select")) return;
       if (e.target.closest("label")) return;
+      if (e.target.closest("textarea")) return;
     }
     e.currentTarget.style.transform = "translateY(0px) scale(0.995)";
   };
@@ -236,11 +230,24 @@ function TrainingRowCard({
       if (e.target.closest("input")) return;
       if (e.target.closest("select")) return;
       if (e.target.closest("label")) return;
+      if (e.target.closest("textarea")) return;
     }
     e.currentTarget.style.transform = "translateY(-1px)";
   };
 
   const stop = (e: MouseEvent<HTMLElement>) => e.stopPropagation();
+
+  const handleSelect = (e: MouseEvent<HTMLDivElement>) => {
+    if (isEditing) return;
+    if (e.target instanceof HTMLElement) {
+      if (e.target.closest("button")) return;
+      if (e.target.closest("input")) return;
+      if (e.target.closest("select")) return;
+      if (e.target.closest("label")) return;
+      if (e.target.closest("textarea")) return;
+    }
+    onSelect();
+  };
 
   const expiryMode =
     (edit.editTrainingExpiryWeeks || "").trim() === "" ? "NEVER" : "WEEKS";
@@ -251,6 +258,7 @@ function TrainingRowCard({
       onMouseLeave={hoverOff}
       onMouseDown={pressOn}
       onMouseUp={pressOff}
+      onClick={handleSelect}
       style={{
         display: "grid",
         gridTemplateColumns: "1fr auto",
@@ -258,7 +266,13 @@ function TrainingRowCard({
         padding: "12px 12px",
         borderTop: isFirst ? "none" : "1px solid rgba(255,255,255,0.08)",
         borderRadius: isFirst ? "14px 14px 0 0" : isLast ? "0 0 14px 14px" : 0,
-        background: "transparent",
+        background: selectedBg,
+        outline: isSelected
+          ? "1px solid rgba(0,122,255,0.45)"
+          : "1px solid transparent",
+        boxShadow: isSelected
+          ? "0 12px 30px rgba(0,122,255,0.18)"
+          : "none",
         transition:
           "transform 140ms ease, box-shadow 180ms ease, background 160ms ease",
         willChange: "transform",
@@ -292,8 +306,6 @@ function TrainingRowCard({
             )}
           </div>
 
-          {!isEditing && <StatusBadge S={S} active={t.active} />}
-
           {!isEditing && (
             <div
               style={{
@@ -321,8 +333,6 @@ function TrainingRowCard({
             alignItems: "center",
           }}
         >
-          <IdMeta id={t.localId ?? t.id} label="#" />
-          <IdMeta id={t.id} label="PK" />
         </div>
 
         {isEditing && (
@@ -400,7 +410,7 @@ function TrainingRowCard({
                 }}
                 onChange={(e) => {
                   const v = e.target.value;
-                  if (/^\\d*$/.test(v)) edit.setEditTrainingExpiryWeeks(v);
+                  if (/^\d*$/.test(v)) edit.setEditTrainingExpiryWeeks(v);
                 }}
                 style={{
                   ...S.input,
@@ -465,52 +475,281 @@ function TrainingRowCard({
   );
 }
 
+/** ---------- Requirements row ---------- */
+
+function RequirementRowCard({
+  S,
+  r,
+  leftLabel,
+  accentHex,
+  onDelete,
+  isFirst,
+  isLast,
+}: any) {
+  const accent = hexToRgba(accentHex, 0.78);
+  const [hovered, setHovered] = useState(false);
+
+  const hoverOn = (e: any) => {
+    setHovered(true);
+    e.currentTarget.style.transform = "translateY(-1px)";
+    e.currentTarget.style.boxShadow = "0 12px 26px rgba(0,0,0,0.22)";
+    e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+  };
+
+  const hoverOff = (e: any) => {
+    setHovered(false);
+    e.currentTarget.style.transform = "translateY(0)";
+    e.currentTarget.style.boxShadow = "none";
+    e.currentTarget.style.background = "transparent";
+  };
+
+  const pressOn = (e: any) => {
+    if (e.target.closest("button")) return;
+    if (e.target.closest("input")) return;
+    if (e.target.closest("select")) return;
+    if (e.target.closest("textarea")) return;
+    if (e.target.closest("label")) return;
+    e.currentTarget.style.transform = "translateY(0px) scale(0.995)";
+  };
+
+  const pressOff = (e: any) => {
+    if (e.target.closest("button")) return;
+    if (e.target.closest("input")) return;
+    if (e.target.closest("select")) return;
+    if (e.target.closest("textarea")) return;
+    if (e.target.closest("label")) return;
+    e.currentTarget.style.transform = "translateY(-1px)";
+  };
+
+  return (
+    <div
+      onMouseEnter={hoverOn}
+      onMouseLeave={hoverOff}
+      onMouseDown={pressOn}
+      onMouseUp={pressOff}
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        display: "grid",
+        gridTemplateColumns: "1fr auto",
+        gap: 12,
+        padding: "12px 12px",
+        borderTop: isFirst ? "none" : "1px solid rgba(255,255,255,0.08)",
+        borderRadius: isFirst ? "14px 14px 0 0" : isLast ? "0 0 14px 14px" : 0,
+        background: "transparent",
+        transition:
+          "transform 140ms ease, box-shadow 180ms ease, background 160ms ease",
+        willChange: "transform",
+      }}
+    >
+      {accent && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: hovered ? 4 : 3,
+            background: `linear-gradient(180deg, ${accent} 0%, rgba(255,255,255,0.06) 100%)`,
+            opacity: 0.95,
+            boxShadow: hovered ? `0 0 14px ${accent}` : "none",
+            transition: "box-shadow 160ms ease, width 160ms ease",
+          }}
+        />
+      )}
+
+      <div style={{ minWidth: 0, paddingLeft: accent ? 8 : 0 }}>
+        <div
+          style={{
+            fontSize: 13.5,
+            fontWeight: 850,
+            letterSpacing: "-0.01em",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+          title={leftLabel}
+        >
+          {leftLabel}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-end",
+        }}
+      >
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button style={S.button("danger")} onClick={() => onDelete(r)}>
+            Remove
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** ---------- Main ---------- */
+
+type RequirementWithTrack = Requirement & { trackName: string };
+
+type RequirementWithTraining = Requirement & { trainingName: string };
+
+export type RequirementsByTraining = {
+  trainingId: number;
+  trainingName: string;
+  items: RequirementWithTrack[];
+};
+
+export type RequirementsByTrack = {
+  trackId: number;
+  trackName: string;
+  items: RequirementWithTraining[];
+};
+
+type TrainingsTabProps = {
+  S: any;
+  tracks: Track[];
+  trainings: Training[];
+  trainingsLoading: boolean;
+  trainingsError: string;
+  trainingGroups: TrainingGroup[];
+  trainingGroupsLoading: boolean;
+  trainingGroupsError: string;
+  createTrainingGroup: (name: string) => Promise<number | null>;
+  updateTrainingGroup: (
+    id: number,
+    patch: { name?: string; sort_order?: number | null }
+  ) => Promise<void>;
+  deleteTrainingGroup: (group: TrainingGroup) => Promise<void>;
+  editingTrainingId: number | null;
+  editTrainingName: string;
+  setEditTrainingName: Dispatch<SetStateAction<string>>;
+  editTrainingActive: YesNo;
+  setEditTrainingActive: Dispatch<SetStateAction<YesNo>>;
+  editTrainingSaving: boolean;
+  editTrainingExpiryWeeks: string;
+  setEditTrainingExpiryWeeks: Dispatch<SetStateAction<string>>;
+  editTrainingGroupId: string;
+  setEditTrainingGroupId: Dispatch<SetStateAction<string>>;
+  addTrainingDefinition: () => void;
+  deleteTrainingDefinition: (row: Training) => Promise<void>;
+  startEditTraining: (row: Training) => void;
+  cancelEditTraining: () => void;
+  saveEditTraining: (row: Training) => Promise<void>;
+  loadTrainings: (force?: boolean) => Promise<void>;
+  loadTrainingGroups: (force?: boolean) => Promise<void>;
+
+  requirements: Requirement[];
+  requirementsLoading: boolean;
+  requirementsError: string;
+  reqNewTrackId: string;
+  setReqNewTrackId: Dispatch<SetStateAction<string>>;
+  reqNewTrainingId: string;
+  setReqNewTrainingId: Dispatch<SetStateAction<string>>;
+  reqNewActive: YesNo;
+  setReqNewActive: Dispatch<SetStateAction<YesNo>>;
+  reqAdding: boolean;
+  addTrainingRequirement: () => void;
+
+  requirementsViewMode: ReqViewMode;
+  setRequirementsViewMode: Dispatch<SetStateAction<ReqViewMode>>;
+  requirementsGroupedByTraining: RequirementsByTraining[];
+  requirementsGroupedByTrack: RequirementsByTrack[];
+
+  isReqTrackExpanded: (trackId: number) => boolean;
+  toggleReqTrackExpanded: (trackId: number) => void;
+  expandAllReqTracks: () => void;
+  collapseAllReqTracks: () => void;
+
+  loadTracks: (force?: boolean) => Promise<void>;
+  loadRequirements: (force?: boolean) => Promise<void>;
+  toggleRequirementRow: (row: Requirement) => Promise<void>;
+  deleteRequirement: (row: Requirement) => Promise<void>;
+};
+
+type GroupCounts = { active: number; inactive: number };
+
+type GroupedBlock = {
+  key: string;
+  title: string;
+  subtitle: string;
+  sortOrder?: number | null;
+  items: Training[];
+  counts: GroupCounts;
+};
+
+type GroupView = "group" | "status";
+
 export default function TrainingsTab({
   S,
-
+  tracks,
   trainings,
   trainingsLoading,
   trainingsError,
-
-  trainingGroups = [],
+  trainingGroups,
   trainingGroupsLoading,
   trainingGroupsError,
   createTrainingGroup,
   updateTrainingGroup,
   deleteTrainingGroup,
-
   editingTrainingId,
   editTrainingName,
   setEditTrainingName,
   editTrainingActive,
   setEditTrainingActive,
   editTrainingSaving,
-
   editTrainingExpiryWeeks,
   setEditTrainingExpiryWeeks,
-
   editTrainingGroupId,
   setEditTrainingGroupId,
-
   addTrainingDefinition,
   deleteTrainingDefinition,
   startEditTraining,
   cancelEditTraining,
   saveEditTraining,
   loadTrainings,
+  loadTrainingGroups,
+  requirements,
+  requirementsLoading,
+  requirementsError,
+  reqNewTrackId,
+  setReqNewTrackId,
+  reqNewTrainingId,
+  setReqNewTrainingId,
+  reqNewActive,
+  setReqNewActive,
+  reqAdding,
+  addTrainingRequirement,
+  requirementsViewMode,
+  setRequirementsViewMode,
+  requirementsGroupedByTraining,
+  requirementsGroupedByTrack,
+  isReqTrackExpanded,
+  toggleReqTrackExpanded,
+  loadTracks,
+  loadRequirements,
+  deleteRequirement,
 }: TrainingsTabProps) {
-  const [q, setQ] = useState("");
+  const [trainQ, setTrainQ] = useState("");
   const [groupView, setGroupView] = useState<GroupView>("group");
+  const [groupsOpen, setGroupsOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [addingGroup, setAddingGroup] = useState(false);
-  const [groupsOpen, setGroupsOpen] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
   const [editGroupOrder, setEditGroupOrder] = useState("");
   const [savingGroup, setSavingGroup] = useState(false);
-  const handleGroupViewChange = (value: string) => {
-    setGroupView(value === "status" ? "status" : "group");
-  };
+
+  const [selectedTrainingId, setSelectedTrainingId] = useState<number | null>(
+    null
+  );
+  useEffect(() => {
+    if (reqNewActive !== "TRUE") setReqNewActive("TRUE");
+  }, [reqNewActive, setReqNewActive]);
 
   const sortedGroups = useMemo(() => {
     const list = Array.isArray(trainingGroups) ? [...trainingGroups] : [];
@@ -535,16 +774,14 @@ export default function TrainingsTab({
 
   const baseList = useMemo<Training[]>(() => {
     const list = Array.isArray(trainings) ? trainings : [];
-    const query = (q || "").trim().toLowerCase();
+    const query = (trainQ || "").trim().toLowerCase();
     if (!query) return list;
 
     return list.filter((t) => {
       const groupName =
         t.trainingGroupId == null
           ? "Ungrouped"
-          : String(
-              groupById.get(String(t.trainingGroupId))?.name || "Ungrouped"
-            );
+          : String(groupById.get(String(t.trainingGroupId))?.name || "Ungrouped");
       const expires = formatExpiryLabel(t.expiresAfterWeeks);
       const hay = `${t.localId ?? ""} ${t.id} ${
         t.name || ""
@@ -553,7 +790,7 @@ export default function TrainingsTab({
       }`.toLowerCase();
       return hay.includes(query);
     });
-  }, [trainings, q, groupById]);
+  }, [trainings, trainQ, groupById]);
 
   const grouped = useMemo<GroupedBlock[]>(() => {
     if (groupView === "group") {
@@ -652,10 +889,55 @@ export default function TrainingsTab({
   const groupKeys = useMemo(() => grouped.map((g) => g.key), [grouped]);
   const expand = useExpandableKeys(groupKeys, { defaultExpanded: true });
 
-  const resetAll = useCallback(() => {
-    setQ("");
-    expand.resetToDefault();
-  }, [expand]);
+  const totalCounts = useMemo(() => {
+    let active = 0;
+    let inactive = 0;
+    for (const t of baseList) {
+      if (t.active) active += 1;
+      else inactive += 1;
+    }
+    return { active, inactive };
+  }, [baseList]);
+
+  useEffect(() => {
+    if (!baseList.length) {
+      setSelectedTrainingId(null);
+      return;
+    }
+    if (
+      selectedTrainingId == null ||
+      !baseList.some((t) => t.id === selectedTrainingId)
+    ) {
+      setSelectedTrainingId(baseList[0].id);
+    }
+  }, [baseList, selectedTrainingId]);
+
+  const selectedTraining = useMemo(() => {
+    if (selectedTrainingId == null) return null;
+    return trainings.find((t) => t.id === selectedTrainingId) || null;
+  }, [trainings, selectedTrainingId]);
+
+  const selectedTrainingGroupName = useMemo(() => {
+    if (!selectedTraining) return "Ungrouped";
+    if (selectedTraining.trainingGroupId == null) return "Ungrouped";
+    return (
+      groupById.get(String(selectedTraining.trainingGroupId))?.name ||
+      "Ungrouped"
+    );
+  }, [selectedTraining, groupById]);
+
+  useEffect(() => {
+    if (requirementsViewMode !== "training") return;
+    if (selectedTraining) {
+      setReqNewTrainingId(String(selectedTraining.id));
+    } else {
+      setReqNewTrainingId("ALL");
+    }
+  }, [requirementsViewMode, selectedTraining, setReqNewTrainingId]);
+
+  const handleGroupViewChange = (value: string) => {
+    setGroupView(value === "status" ? "status" : "group");
+  };
 
   const handleCreateGroup = useCallback(async () => {
     const name = (newGroupName || "").trim();
@@ -787,8 +1069,7 @@ export default function TrainingsTab({
           ? (swapIdx + 1) * 10
           : Number(neighbor.sortOrder);
 
-      const targetOrder =
-        direction === "up" ? neighborOrder - 1 : neighborOrder + 1;
+      const targetOrder = direction === "up" ? neighborOrder - 1 : neighborOrder + 1;
 
       setSavingGroup(true);
       try {
@@ -801,6 +1082,41 @@ export default function TrainingsTab({
     },
     [sortedGroups, updateTrainingGroup]
   );
+
+  const resetAll = useCallback(() => {
+    setTrainQ("");
+    expand.resetToDefault();
+  }, [expand]);
+
+  const trackColorById = useMemo(() => {
+    const map = new Map();
+    for (const t of tracks || []) {
+      map.set(String(t.id), normalizeHex(t.color || ""));
+    }
+    return map;
+  }, [tracks]);
+
+  const trainingReqGroup = useMemo(() => {
+    if (!selectedTrainingId) return null;
+    return (
+      requirementsGroupedByTraining || []
+    ).find((g) => g.trainingId === selectedTrainingId) || null;
+  }, [requirementsGroupedByTraining, selectedTrainingId]);
+
+  const trainingReqItems = useMemo(() => {
+    return trainingReqGroup?.items || [];
+  }, [trainingReqGroup]);
+
+  const filteredTrackGroups = useMemo(() => {
+    return requirementsGroupedByTrack || [];
+  }, [requirementsGroupedByTrack]);
+
+  const canAddRequirement =
+    reqNewTrackId !== "ALL" &&
+    reqNewTrainingId !== "ALL" &&
+    !reqAdding &&
+    !!reqNewTrackId &&
+    !!reqNewTrainingId;
 
   const edit: TrainingEditState = {
     editingTrainingId,
@@ -822,199 +1138,532 @@ export default function TrainingsTab({
     deleteTrainingDefinition,
   };
 
-  const totalCounts = useMemo(() => {
-    let active = 0;
-    let inactive = 0;
-    for (const t of baseList) {
-      if (t.active) active += 1;
-      else inactive += 1;
-    }
-    return { active, inactive };
-  }, [baseList]);
-
-  const stickyShell: CSSProperties = {
-    position: "sticky",
-    top: 0,
-    zIndex: 3,
-    padding: "12px 0 12px",
-    marginBottom: 14,
-    backdropFilter: "blur(14px)",
-    background:
-      "linear-gradient(180deg, rgba(16,18,26,0.92) 0%, rgba(16,18,26,0.72) 65%, rgba(16,18,26,0.00) 100%)",
-  };
-
   const commandBar: CSSProperties = {
     display: "flex",
     alignItems: "center",
     gap: 10,
     flexWrap: "wrap",
-    padding: 12,
-    borderRadius: 18,
+    padding: 10,
+    borderRadius: 16,
     border: "1px solid rgba(255,255,255,0.10)",
-    background: "rgba(0,0,0,0.22)",
-    boxShadow: "0 16px 44px rgba(0,0,0,0.18)",
+    background: "rgba(0,0,0,0.18)",
+    boxShadow: "0 10px 26px rgba(0,0,0,0.16)",
   };
 
-  const canRender = !trainingsLoading && !trainingsError;
+  const heroCard = {
+    ...S.card,
+    padding: 18,
+    borderRadius: 22,
+    background:
+      "linear-gradient(150deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 55%, rgba(0,0,0,0.2) 100%)",
+  };
+
+  const heroTitle = {
+    fontSize: 24,
+    fontWeight: 800,
+    letterSpacing: "-0.02em",
+    margin: 0,
+  };
+
+  const heroSubtitle = {
+    fontSize: 13,
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.68)",
+  };
+
+  const panelHeader = {
+    ...S.cardHeader,
+    padding: "16px 16px 12px",
+    borderBottom: "1px solid rgba(255,255,255,0.08)",
+  };
+
+  const panelBody = { ...S.cardBody, paddingTop: 12 };
+
+  const softCard = {
+    padding: 12,
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(0,0,0,0.18)",
+    boxShadow: "0 12px 30px rgba(0,0,0,0.16)",
+  };
+
+  const insetWrap = {
+    marginLeft: 12,
+    padding: 8,
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.03)",
+    boxShadow: "0 10px 22px rgba(0,0,0,0.12)",
+  };
+
+  const insetList = {
+    borderRadius: 12,
+    overflow: "hidden",
+    border: "1px solid rgba(255,255,255,0.06)",
+    background: "rgba(0,0,0,0.12)",
+  };
+
+  const listShell = {
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(0,0,0,0.12)",
+    boxShadow: "0 10px 22px rgba(0,0,0,0.12)",
+    overflow: "hidden",
+  };
+
+  const formGrid = {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gap: 10,
+    alignItems: "end",
+  } as CSSProperties;
+
+  const pillSelect = {
+    ...S.select,
+    width: "100%",
+    height: 42,
+    padding: "0 16px",
+    borderRadius: 999,
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    boxShadow: "inset 0 1px 1px rgba(255,255,255,0.08)",
+  } as CSSProperties;
+
+  const fieldLabel = {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "rgba(255,255,255,0.7)",
+    marginBottom: 6,
+  };
+
+  const onRefreshAll = useCallback(async () => {
+    await Promise.all([
+      loadTrainings(true),
+      loadTrainingGroups(true),
+      loadTracks(true),
+      loadRequirements(true),
+    ]);
+  }, [loadTrainings, loadTrainingGroups, loadTracks, loadRequirements]);
+
+  const canRenderTrainings = !trainingsLoading && !trainingsError;
+  const canRenderRequirements =
+    !requirementsLoading && !requirementsError && !trainingsError;
 
   return (
-    <>
-      <div style={S.card}>
-        <div style={S.cardHeader}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <h2 style={S.cardTitle}>Trainings</h2>
-            <div style={S.helper}>Add or edit training definitions.</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={heroCard}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 16,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ minWidth: 220 }}>
+            <div style={heroTitle}>Trainings</div>
+            <div style={heroSubtitle}>
+              Define trainings and requirements together.
+            </div>
           </div>
 
-        <div style={S.row}>
-          <button style={S.button("primary")} onClick={addTrainingDefinition}>
-            Add Training
-          </button>
-
-          <button
-            style={S.button("subtle")}
-            onClick={() => loadTrainings(true)}
-            title="Refresh"
-          >
-            Refresh
-          </button>
-
-          <button style={S.button("ghost")} onClick={resetAll}>
-            Reset
-          </button>
-        </div>
-      </div>
-
-      <div style={S.cardBody}>
-        <div style={stickyShell}>
-          <div style={commandBar}>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search trainings"
-              style={{ ...S.input, width: 320, flex: "1 1 240px" }}
-            />
-
-            <Segmented
-              value={groupView}
-              onChange={handleGroupViewChange}
-              options={[
-                { value: "group", label: "By Group" },
-                { value: "status", label: "By Status" },
-              ]}
-            />
-
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button style={S.button("primary")} onClick={addTrainingDefinition}>
+              Add Training
+            </button>
             <button style={S.button("subtle")} onClick={openGroupsModal}>
               Manage Groups
             </button>
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <button style={S.button("subtle")} onClick={expand.expandAll}>
-                Expand
-              </button>
-              <button style={S.button("subtle")} onClick={expand.collapseAll}>
-                Collapse
-              </button>
-            </div>
-
-            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-              <DotCount
-                color="rgba(52,199,89,0.90)"
-                count={totalCounts.active}
-                title={`Active: ${totalCounts.active}`}
-              />
-              <DotCount
-                color="rgba(142,142,147,0.85)"
-                count={totalCounts.inactive}
-                title={`Inactive: ${totalCounts.inactive}`}
-              />
-            </div>
+            <button style={S.button("subtle")} onClick={onRefreshAll}>
+              Refresh
+            </button>
           </div>
         </div>
+      </div>
 
-        {trainingGroupsLoading && (
-          <p style={S.loading}>Loading training groups...</p>
-        )}
-        {trainingGroupsError && <p style={S.error}>{trainingGroupsError}</p>}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          gap: 14,
+        }}
+      >
+        {/* Trainings panel */}
+        <div style={S.card}>
+          <div style={panelHeader}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <h2 style={S.cardTitle}>Training Library</h2>
+              <div style={S.helper}>
+                Browse, organize, and select a training.
+              </div>
+            </div>
+          </div>
 
-        {trainingsLoading && <p style={S.loading}>Loading trainings...</p>}
-        {trainingsError && <p style={S.error}>{trainingsError}</p>}
+          <div style={panelBody}>
+            <div style={commandBar}>
+              <input
+                value={trainQ}
+                onChange={(e) => setTrainQ(e.target.value)}
+                placeholder="Search trainings"
+                style={{ ...S.input, minWidth: 220, flex: "1 1 220px" }}
+              />
 
-        {canRender && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {grouped.map((g) => {
-              const open = expand.expanded.has(g.key);
+              <Segmented
+                value={groupView}
+                onChange={handleGroupViewChange}
+                options={[
+                  { value: "group", label: "By Group" },
+                  { value: "status", label: "By Status" },
+                ]}
+              />
 
-              return (
-                <div
-                  key={g.key}
-                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
-                >
-                  <GroupHeaderIOS
-                    title={g.title}
-                    subtitle={g.subtitle}
-                    open={open}
-                    onToggle={() => expand.toggle(g.key)}
-                    counts={g.counts}
-                  />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={S.button("subtle")} onClick={expand.expandAll}>
+                  Expand
+                </button>
+                <button style={S.button("subtle")} onClick={expand.collapseAll}>
+                  Collapse
+                </button>
+              </div>
 
-                  {open && (
+              <button style={S.button("ghost")} onClick={resetAll}>
+                Clear
+              </button>
+
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                <DotCount
+                  color="rgba(52,199,89,0.90)"
+                  count={totalCounts.active}
+                  title={`Active: ${totalCounts.active}`}
+                />
+                <DotCount
+                  color="rgba(142,142,147,0.85)"
+                  count={totalCounts.inactive}
+                  title={`Inactive: ${totalCounts.inactive}`}
+                />
+              </div>
+            </div>
+
+            {trainingGroupsLoading && (
+              <p style={S.loading}>Loading training groups...</p>
+            )}
+            {trainingGroupsError && <p style={S.error}>{trainingGroupsError}</p>}
+
+            {trainingsLoading && <p style={S.loading}>Loading trainings...</p>}
+            {trainingsError && <p style={S.error}>{trainingsError}</p>}
+
+            {canRenderTrainings && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {grouped.map((g) => {
+                  const open = expand.expanded.has(g.key);
+
+                  return (
                     <div
-                      style={{
-                        marginLeft: 18,
-                        padding: 10,
-                        borderRadius: 16,
-                        border: "1px solid rgba(255,255,255,0.10)",
-                        background: "rgba(0,0,0,0.14)",
-                        boxShadow: "0 14px 36px rgba(0,0,0,0.18)",
-                      }}
+                      key={g.key}
+                      style={{ display: "flex", flexDirection: "column", gap: 10 }}
                     >
-                      <div
-                        style={{
-                          borderRadius: 14,
-                          overflow: "hidden",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          background: "rgba(0,0,0,0.18)",
-                        }}
-                      >
-                        {g.items.map((t, idx) => {
-                          const groupName =
-                            t.trainingGroupId == null
-                              ? "Ungrouped"
-                              : String(
-                                  groupById.get(String(t.trainingGroupId))
-                                    ?.name || "Ungrouped"
-                                );
-                          return (
-                            <TrainingRowCard
-                              key={t.id}
-                              S={S}
-                              t={t}
-                              groupName={groupName}
-                              groupOptions={groupOptions}
-                              edit={edit}
-                              actions={actions}
-                              isFirst={idx === 0}
-                              isLast={idx === g.items.length - 1}
-                              canPickGroup={!trainingGroupsLoading}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                      <GroupHeaderIOS
+                        title={g.title}
+                        subtitle={g.subtitle}
+                        open={open}
+                        counts={g.counts}
+                        showCounts={false}
+                        onToggle={() => expand.toggle(g.key)}
+                      />
 
-            {baseList.length === 0 && (
-              <div style={{ padding: 18, opacity: 0.75 }}>
-                No trainings match your search.
+                      {open && (
+                        <div style={insetWrap}>
+                          <div style={insetList}>
+                            {g.items.map((t, idx) => {
+                              const groupName =
+                                t.trainingGroupId == null
+                                  ? "Ungrouped"
+                                  : String(
+                                      groupById.get(String(t.trainingGroupId))
+                                        ?.name || "Ungrouped"
+                                    );
+                              return (
+                                <TrainingRowCard
+                                  key={t.id}
+                                  S={S}
+                                  t={t}
+                                  groupName={groupName}
+                                  groupOptions={groupOptions}
+                                  edit={edit}
+                                  actions={actions}
+                                  isFirst={idx === 0}
+                                  isLast={idx === g.items.length - 1}
+                                  canPickGroup={!trainingGroupsLoading}
+                                  isSelected={t.id === selectedTrainingId}
+                                  onSelect={() => setSelectedTrainingId(t.id)}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {baseList.length === 0 && (
+                  <div style={{ padding: 18, opacity: 0.75 }}>
+                    No trainings match your search.
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
-      </div>
+        </div>
+
+        {/* Requirements panel */}
+        <div style={S.card}>
+          <div style={panelHeader}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <h2 style={S.cardTitle}>Requirements</h2>
+              <div style={S.helper}>
+                Connect tracks and trainings with one click.
+              </div>
+            </div>
+
+            <div style={S.row}>
+              <Segmented
+                value={requirementsViewMode}
+                onChange={(v) => setRequirementsViewMode(v as ReqViewMode)}
+                options={[
+                  { value: "training", label: "By Training" },
+                  { value: "track", label: "By Track" },
+                ]}
+              />
+            </div>
+          </div>
+
+          <div style={panelBody}>
+            {requirementsViewMode === "training" && (
+              <div
+                style={{
+                  ...softCard,
+                  marginBottom: 12,
+                  background: "rgba(255,255,255,0.02)",
+                  boxShadow: "none",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: "0.14em",
+                        textTransform: "uppercase",
+                        opacity: 0.5,
+                      }}
+                    >
+                      Selected training
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 780 }}>
+                      {selectedTraining
+                        ? selectedTraining.name
+                        : "Select a training from the left list."}
+                    </div>
+                    {selectedTraining && (
+                      <div style={{ ...S.mini, opacity: 0.55 }}>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <span>
+                            {selectedTrainingGroupName || "Ungrouped"}
+                          </span>
+                          <span>•</span>
+                          <span>
+                            Expires{" "}
+                            {formatExpiryLabel(
+                              selectedTraining.expiresAfterWeeks
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedTraining && (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        opacity: 0.5,
+                      }}
+                    >
+                      {trainingReqItems.length} requirements
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Add requirement */}
+            <div
+              style={{
+                ...softCard,
+                marginBottom: 12,
+                background: "rgba(255,255,255,0.02)",
+                boxShadow: "none",
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <div
+                style={{
+                  ...formGrid,
+                  gridTemplateColumns:
+                    requirementsViewMode === "training"
+                      ? "minmax(200px, 1fr) auto"
+                      : "minmax(200px, 1fr) minmax(200px, 1fr) auto",
+                }}
+              >
+                <div>
+                  <div style={fieldLabel}>Track</div>
+                  <select
+                    value={reqNewTrackId}
+                    onChange={(e) => setReqNewTrackId(e.target.value)}
+                    style={pillSelect}
+                  >
+                    <option value="ALL">Pick a track</option>
+                    {tracks.map((t) => (
+                      <option key={t.id} value={String(t.id)}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {requirementsViewMode === "track" && (
+                  <div>
+                    <div style={fieldLabel}>Training</div>
+                    <select
+                      value={reqNewTrainingId}
+                      onChange={(e) => setReqNewTrainingId(e.target.value)}
+                      style={pillSelect}
+                    >
+                      <option value="ALL">Pick a training</option>
+                      {trainings.map((t) => (
+                        <option key={t.id} value={String(t.id)}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", alignItems: "center" }}>
+                  <button
+                    style={S.button("primary", !canAddRequirement)}
+                    disabled={!canAddRequirement}
+                    onClick={addTrainingRequirement}
+                  >
+                    {reqAdding ? "Adding..." : "Add"}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {requirementsLoading && <p style={S.loading}>Loading requirements...</p>}
+            {requirementsError && <p style={S.error}>{requirementsError}</p>}
+
+            {canRenderRequirements && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {requirementsViewMode === "training" ? (
+                  !selectedTraining ? (
+                    <div style={{ padding: 18, opacity: 0.75 }}>
+                      Select a training to view its requirements.
+                    </div>
+                  ) : trainingReqItems.length === 0 ? (
+                    <div style={{ padding: 18, opacity: 0.75 }}>
+                      No requirements yet for {selectedTraining.name}.
+                    </div>
+                  ) : (
+                    <div style={listShell}>
+                      {trainingReqItems.map((r, idx) => (
+                        <RequirementRowCard
+                          key={r.id}
+                          S={S}
+                          r={r}
+                          leftLabel={r.trackName}
+                          accentHex={trackColorById.get(String(r.trackId)) || ""}
+                          isFirst={idx === 0}
+                          isLast={idx === trainingReqItems.length - 1}
+                          onDelete={deleteRequirement}
+                        />
+                      ))}
+                    </div>
+                  )
+                ) : filteredTrackGroups.length === 0 ? (
+                  <div style={{ padding: 18, opacity: 0.75 }}>
+                    No requirements found.
+                  </div>
+                ) : (
+                  filteredTrackGroups.map((g) => {
+                    const open = isReqTrackExpanded(g.trackId);
+                    const items = g.items || [];
+                    const active = items.reduce(
+                      (n, r) => n + (r.active ? 1 : 0),
+                      0
+                    );
+                    const inactive = items.length - active;
+
+                    const groupKey = `tk_${g.trackId}`;
+                    const headerAccentHex =
+                      trackColorById.get(String(g.trackId)) || "";
+
+                    return (
+                      <div
+                        key={groupKey}
+                        style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                      >
+                        <GroupHeaderIOS
+                          title={g.trackName}
+                          subtitle={`${items.length} trainings`}
+                          open={open}
+                          counts={{ active, inactive }}
+                          accentHex={headerAccentHex}
+                          showCounts={false}
+                          onToggle={() => toggleReqTrackExpanded(g.trackId)}
+                        />
+
+                        {open && (
+                          <div style={insetWrap}>
+                            <div style={insetList}>
+                              {items.map((r, idx) => (
+                                <RequirementRowCard
+                                  key={r.id}
+                                  S={S}
+                                  r={r}
+                                  leftLabel={r.trainingName}
+                                  accentHex=""
+                                  isFirst={idx === 0}
+                                  isLast={idx === items.length - 1}
+                                  onDelete={deleteRequirement}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {groupsOpen && (
@@ -1064,9 +1713,7 @@ export default function TrainingsTab({
                 {trainingGroupsLoading && (
                   <p style={S.loading}>Loading training groups...</p>
                 )}
-                {trainingGroupsError && (
-                  <p style={S.error}>{trainingGroupsError}</p>
-                )}
+                {trainingGroupsError && <p style={S.error}>{trainingGroupsError}</p>}
 
                 {sortedGroups.length === 0 && !trainingGroupsLoading && (
                   <div style={{ opacity: 0.7, fontSize: 12 }}>
@@ -1123,7 +1770,7 @@ export default function TrainingsTab({
                                 value={editGroupOrder}
                                 onChange={(e) => {
                                   const v = e.target.value;
-                                  if (/^-?\\d*$/.test(v)) setEditGroupOrder(v);
+                                  if (/^-?\d*$/.test(v)) setEditGroupOrder(v);
                                 }}
                                 style={{ ...S.input, width: "100%" }}
                                 placeholder="Auto"
@@ -1160,7 +1807,6 @@ export default function TrainingsTab({
                                 opacity: 0.75,
                               }}
                             >
-                              <IdMeta id={g.id} label="ID" />
                               <span>Order: {orderLabel}</span>
                             </div>
                           </div>
@@ -1175,28 +1821,28 @@ export default function TrainingsTab({
                           alignItems: "center",
                         }}
                       >
-                  {isEditingGroup ? (
-                    <>
-                      <button
-                        onClick={() => saveGroup(g)}
-                        disabled={disableActions}
-                        style={S.button("primary", disableActions)}
-                      >
-                        {savingGroup ? "Saving..." : "Save"}
-                      </button>
-                      <button
-                        onClick={() => deleteTrainingGroup(g)}
-                        disabled={disableActions}
-                        style={S.button("danger", disableActions)}
-                        title="Delete group (trainings will be ungrouped)"
-                      >
-                        Delete
-                      </button>
-                      <button
-                        onClick={cancelEditGroup}
-                        disabled={disableActions}
-                        style={S.button("ghost", disableActions)}
-                      >
+                        {isEditingGroup ? (
+                          <>
+                            <button
+                              onClick={() => saveGroup(g)}
+                              disabled={disableActions}
+                              style={S.button("primary", disableActions)}
+                            >
+                              {savingGroup ? "Saving..." : "Save"}
+                            </button>
+                            <button
+                              onClick={() => deleteTrainingGroup(g)}
+                              disabled={disableActions}
+                              style={S.button("danger", disableActions)}
+                              title="Delete group (trainings will be ungrouped)"
+                            >
+                              Delete
+                            </button>
+                            <button
+                              onClick={cancelEditGroup}
+                              disabled={disableActions}
+                              style={S.button("ghost", disableActions)}
+                            >
                               Cancel
                             </button>
                           </>
@@ -1212,7 +1858,10 @@ export default function TrainingsTab({
                             <button
                               onClick={() => moveGroup(g, "up")}
                               disabled={disableActions || idx === 0}
-                              style={S.button("subtle", disableActions || idx === 0)}
+                              style={S.button(
+                                "subtle",
+                                disableActions || idx === 0
+                              )}
                               title="Move up"
                             >
                               Up
@@ -1241,6 +1890,6 @@ export default function TrainingsTab({
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

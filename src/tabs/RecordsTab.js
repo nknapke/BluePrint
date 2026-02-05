@@ -321,9 +321,13 @@ function RecordRow({
   isFirst,
   isLast,
   titleMode,
+  layout,
+  trainingGroupName,
 }) {
   const tone = statusTone(r);
   const label = statusLabel(r);
+
+  const isList = layout === "list";
 
   const mainTitle = titleMode === "crewView" ? r.trainingName : r.crewName;
 
@@ -364,34 +368,71 @@ function RecordRow({
       }}
     >
       <div style={{ minWidth: 0 }}>
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 13.5,
-              fontWeight: 850,
-              letterSpacing: "-0.01em",
-            }}
-          >
-            {mainTitle}
-          </div>
-          <Pill tone={tone} text={label} />
-          <div style={S.helper}>{daysText(r)}</div>
-        </div>
+        {isList ? (
+          <>
+            <div style={{ fontSize: 14.5, fontWeight: 860, letterSpacing: "-0.01em" }}>
+              {r.crewName || "—"}
+            </div>
+            <div style={{ marginTop: 4, fontSize: 13, fontWeight: 720, opacity: 0.88 }}>
+              {r.trainingName || "—"}
+            </div>
+            <div
+              style={{
+                marginTop: 6,
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                fontSize: 12,
+                fontWeight: 700,
+                opacity: 0.7,
+              }}
+            >
+              <span>{r.trackName || "—"}</span>
+              <span style={{ opacity: 0.35 }}>•</span>
+              <span>{trainingGroupName || "—"}</span>
+              <span style={{ opacity: 0.35 }}>•</span>
+              <span>Due: {r.dueDate || "—"}</span>
+              <span style={{ opacity: 0.35 }}>•</span>
+              <span>Last: {r.lastCompleted || "—"}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 13.5,
+                  fontWeight: 850,
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                {mainTitle}
+              </div>
+              <Pill tone={tone} text={label} />
+              <div style={S.helper}>{daysText(r)}</div>
+            </div>
 
-        <div
-          style={{ marginTop: 6, fontSize: 12, fontWeight: 700, opacity: 0.82 }}
-        >
-          <span style={{ opacity: 0.95 }}>{r.trackName}</span>
-          <span style={{ opacity: 0.55 }}> · </span>
-          <span style={{ opacity: 0.78 }}>{secondary}</span>
-        </div>
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 12,
+                fontWeight: 700,
+                opacity: 0.82,
+              }}
+            >
+              <span style={{ opacity: 0.95 }}>{r.trackName}</span>
+              <span style={{ opacity: 0.55 }}> · </span>
+              <span style={{ opacity: 0.78 }}>{secondary}</span>
+            </div>
+          </>
+        )}
       </div>
 
       <div
@@ -404,26 +445,36 @@ function RecordRow({
         <div
           style={{
             display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
             gap: 8,
-            flexWrap: "wrap",
-            justifyContent: "flex-end",
           }}
         >
-          <button
-            style={S.button("ghost")}
-            onClick={() => openHistory(r)}
-            title="View completion history"
+          <Pill tone={tone} text={label} />
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              justifyContent: "flex-end",
+            }}
           >
-            History
-          </button>
+            <button
+              style={S.button("ghost")}
+              onClick={() => openHistory(r)}
+              title="View completion history"
+            >
+              History
+            </button>
 
-          <button
-            style={S.button("subtle")}
-            onClick={() => markRecordComplete(r)}
-            title="Set completed date and reset the cycle"
-          >
-            Mark Complete
-          </button>
+            <button
+              style={S.button("subtle")}
+              onClick={() => markRecordComplete(r)}
+              title="Set completed date and reset the cycle"
+            >
+              Mark Complete
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -597,6 +648,7 @@ export default function RecordsTab({
   crew,
   tracks,
   trainings,
+  trainingGroups,
   visibleTrainingRecords,
   recordsLoading,
   recordsError,
@@ -615,6 +667,28 @@ export default function RecordsTab({
   const [statFilter, setStatFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ACTIVE");
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const trainingById = useMemo(() => {
+    const map = new Map();
+    for (const t of trainings || []) map.set(String(t.id), t);
+    return map;
+  }, [trainings]);
+
+  const trainingGroupById = useMemo(() => {
+    const map = new Map();
+    for (const g of trainingGroups || []) map.set(String(g.id), g);
+    return map;
+  }, [trainingGroups]);
+
+  const getTrainingGroupName = useCallback(
+    (r) => {
+      const t = trainingById.get(String(r.trainingId));
+      if (!t) return "—";
+      if (t.trainingGroupId == null) return "Ungrouped";
+      return trainingGroupById.get(String(t.trainingGroupId))?.name || "Ungrouped";
+    },
+    [trainingById, trainingGroupById]
+  );
 
   const [expandedByView, setExpandedByView] = useState(() => ({
     crew: new Set(),
@@ -955,7 +1029,7 @@ export default function RecordsTab({
   );
 
   const renderLeafCard = useCallback(
-    (items, titleMode) => (
+    (items, titleMode, layout) => (
       <div
         style={{
           marginLeft: 16,
@@ -984,12 +1058,14 @@ export default function RecordsTab({
               isFirst={idx === 0}
               isLast={idx === items.length - 1}
               titleMode={titleMode}
+              layout={layout}
+              trainingGroupName={getTrainingGroupName(r)}
             />
           ))}
         </div>
       </div>
     ),
-    [S, markRecordComplete, openHistory]
+    [S, markRecordComplete, openHistory, getTrainingGroupName]
   );
 
   const renderNode = useCallback(
@@ -1029,7 +1105,7 @@ export default function RecordsTab({
             >
               {node.children?.length
                 ? node.children.map((c) => renderNode(c, depth + 1, cfg))
-                : renderLeafCard(node.items || [], cfg.titleMode)}
+                : renderLeafCard(node.items || [], cfg.titleMode, "group")}
             </div>
           )}
         </div>
@@ -1255,7 +1331,7 @@ export default function RecordsTab({
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {viewMode === "list" ? (
               filtered.length > 0 ? (
-                renderLeafCard(filtered, "crewView")
+                renderLeafCard(filtered, "crewView", "list")
               ) : (
                 <div style={{ padding: 18, opacity: 0.75 }}>
                   No records match your filters.
