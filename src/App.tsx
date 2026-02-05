@@ -34,9 +34,8 @@ import type {
 
 import CrewTab from "./tabs/CrewTab";
 import TracksTab from "./tabs/TracksTab";
-import TrainingsTab from "./tabs/TrainingsTab";
+import TrainingHubTab from "./tabs/TrainingHubTab";
 import SignoffsTab from "./tabs/SignoffsTab";
-import RequirementsTab from "./tabs/RequirementsTab";
 import RecordsTab from "./tabs/RecordsTab";
 import PlannerTab from "./tabs/PlannerTab";
 
@@ -507,8 +506,13 @@ export default function App() {
       if (activeTab === "crew") await loadCrew(true);
       if (activeTab === "trackDefs") await loadTracks(true);
 
-      if (activeTab === "trainingDefs") {
-        await Promise.all([loadTrainings(true), loadTrainingGroups(true)]);
+      if (activeTab === "trainingHub") {
+        await Promise.all([
+          loadTrainings(true),
+          loadTrainingGroups(true),
+          loadTracks(true),
+          loadRequirements(true),
+        ]);
       }
 
       if (activeTab === "signoffs") {
@@ -519,13 +523,6 @@ export default function App() {
         ]);
       }
 
-      if (activeTab === "requirements") {
-        await Promise.all([
-          loadTracks(true),
-          loadTrainings(true),
-          loadRequirements(true),
-        ]);
-      }
 
       if (activeTab === "records") {
         await Promise.all([
@@ -1346,9 +1343,8 @@ export default function App() {
   const tabLabel = (key: TabId) => {
     if (key === "crew") return "Crew";
     if (key === "trackDefs") return "Tracks";
-    if (key === "trainingDefs") return "Trainings";
+    if (key === "trainingHub") return "Training Hub";
     if (key === "signoffs") return "Signoffs";
-    if (key === "requirements") return "Requirements";
     if (key === "records") return "Records";
     if (key === "planner") return "Planner";
     return key;
@@ -1514,9 +1510,10 @@ export default function App() {
             />
           )}
 
-          {activeTab === "trainingDefs" && (
-            <TrainingsTab
+          {activeTab === "trainingHub" && (
+            <TrainingHubTab
               S={S}
+              tracks={tracks}
               trainings={trainings}
               trainingsLoading={trainingsLoading}
               trainingsError={trainingsError}
@@ -1542,6 +1539,30 @@ export default function App() {
               cancelEditTraining={cancelEditTraining}
               saveEditTraining={saveEditTraining}
               loadTrainings={loadTrainings}
+              loadTrainingGroups={loadTrainingGroups}
+              requirements={requirements}
+              requirementsLoading={requirementsLoading}
+              requirementsError={requirementsError}
+              reqNewTrackId={reqNewTrackId}
+              setReqNewTrackId={setReqNewTrackId}
+              reqNewTrainingId={reqNewTrainingId}
+              setReqNewTrainingId={setReqNewTrainingId}
+              reqNewActive={reqNewActive}
+              setReqNewActive={setReqNewActive}
+              reqAdding={reqAdding}
+              addTrainingRequirement={addTrainingRequirement}
+              requirementsViewMode={requirementsViewMode}
+              setRequirementsViewMode={setRequirementsViewMode}
+              requirementsGroupedByTraining={requirementsGroupedByTraining}
+              requirementsGroupedByTrack={requirementsGroupedByTrack}
+              isReqTrackExpanded={isReqTrackExpanded}
+              toggleReqTrackExpanded={toggleReqTrackExpanded}
+              expandAllReqTracks={expandAllReqTracks}
+              collapseAllReqTracks={collapseAllReqTracks}
+              loadTracks={loadTracks}
+              loadRequirements={loadRequirements}
+              toggleRequirementRow={toggleRequirementRow}
+              deleteRequirement={deleteRequirement}
             />
           )}
 
@@ -1566,43 +1587,6 @@ export default function App() {
             />
           )}
 
-          {activeTab === "requirements" && (
-            <RequirementsTab
-              S={S}
-              tracks={tracks}
-              trainings={trainings}
-              requirements={requirements}
-              trainingsLoading={trainingsLoading}
-              trainingsError={trainingsError}
-              requirementsLoading={requirementsLoading}
-              requirementsError={requirementsError}
-              reqNewTrackId={reqNewTrackId}
-              setReqNewTrackId={setReqNewTrackId}
-              reqNewTrainingId={reqNewTrainingId}
-              setReqNewTrainingId={setReqNewTrainingId}
-              reqNewActive={reqNewActive}
-              setReqNewActive={setReqNewActive}
-              reqAdding={reqAdding}
-              addTrainingRequirement={addTrainingRequirement}
-              requirementsViewMode={requirementsViewMode}
-              setRequirementsViewMode={setRequirementsViewMode}
-              requirementsGroupedByTraining={requirementsGroupedByTraining}
-              requirementsGroupedByTrack={requirementsGroupedByTrack}
-              isTrainingExpanded={isTrainingExpanded}
-              toggleTrainingExpanded={toggleTrainingExpanded}
-              expandAllTrainings={expandAllTrainings}
-              collapseAllTrainings={collapseAllTrainings}
-              isReqTrackExpanded={isReqTrackExpanded}
-              toggleReqTrackExpanded={toggleReqTrackExpanded}
-              expandAllReqTracks={expandAllReqTracks}
-              collapseAllReqTracks={collapseAllReqTracks}
-              loadTracks={loadTracks}
-              loadTrainings={loadTrainings}
-              loadRequirements={loadRequirements}
-              toggleRequirementRow={toggleRequirementRow}
-              deleteRequirement={deleteRequirement}
-            />
-          )}
 
           {activeTab === "records" && (
             <RecordsTab
