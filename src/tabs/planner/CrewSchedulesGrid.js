@@ -35,13 +35,7 @@ function prettyDept(s) {
 
 /** ---------- GRID ---------- */
 
-export default function CrewSchedulesGrid({
-  S,
-  roster,
-  search,
-  setSearch,
-  weekLabel,
-}) {
+export default function CrewSchedulesGrid({ S, roster, search }) {
   const loading = !!(roster?.crewLoading || roster?.assignLoading);
   const err = roster?.crewError || roster?.assignError || "";
   const savePaused = !!roster?.savePaused;
@@ -60,6 +54,8 @@ export default function CrewSchedulesGrid({
     () => Array.from({ length: 7 }, (_, i) => addDays(startISO, i)),
     [startISO]
   );
+
+  const todayISO = iso(new Date());
 
   const filteredCrew = useMemo(() => {
     const crew = roster?.crew ?? EMPTY_ARRAY;
@@ -149,6 +145,16 @@ export default function CrewSchedulesGrid({
 
   /** ---------- styles ---------- */
 
+  const panel = {
+    borderRadius: 20,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.03) 100%)",
+    boxShadow: "0 20px 50px rgba(0,0,0,0.35)",
+    padding: 14,
+    marginTop: 12,
+  };
+
   const cellBase = {
     height: 34,
     borderRadius: 10,
@@ -160,32 +166,27 @@ export default function CrewSchedulesGrid({
   };
 
   return (
-    <div
-      style={{
-        borderRadius: 14,
-        border: "1px solid rgba(255,255,255,0.10)",
-        background: "rgba(255,255,255,0.03)",
-        padding: 12,
-        marginTop: 12,
-      }}
-    >
-      {/* Search + week */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
-        <input
-          value={search || ""}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search crew or department"
-          style={{ ...S.input, height: 36, maxWidth: 360 }}
-          disabled={savePaused}
-        />
-        <div style={{ marginLeft: "auto", fontSize: 12, fontWeight: 900 }}>
-          {weekLabel}
-        </div>
+    <div style={panel}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={S.helper}>Click and drag to paint crew schedules.</div>
+        {savePaused ? (
+          <div style={{ ...S.badge("warn"), marginLeft: "auto" }}>
+            Editing paused
+          </div>
+        ) : null}
       </div>
 
-      {loading && <div style={S.helpText}>Loading crew schedules…</div>}
+      {loading && <div style={S.helper}>Loading crew schedules…</div>}
       {err && (
-        <div style={{ ...S.helpText, color: "rgba(255,120,120,0.95)" }}>
+        <div style={{ ...S.helper, color: "rgba(255,120,120,0.95)" }}>
           {err}
         </div>
       )}
@@ -199,29 +200,39 @@ export default function CrewSchedulesGrid({
           position: "sticky",
           top: 0,
           zIndex: 30,
+          paddingBottom: 6,
+          background: "rgba(12,14,20,0.8)",
+          backdropFilter: "blur(8px)",
         }}
       >
         <div />
-        {days.map((d) => (
-          <div
-            key={d}
-            onMouseEnter={() => setHoverDate(d)}
-            onMouseLeave={() => setHoverDate(null)}
-            style={{
-              borderRadius: 12,
-              padding: "10px",
-              textAlign: "center",
-              background:
-                hoverDate === d
+        {days.map((d) => {
+          const isToday = d === todayISO;
+          return (
+            <div
+              key={d}
+              onMouseEnter={() => setHoverDate(d)}
+              onMouseLeave={() => setHoverDate(null)}
+              style={{
+                borderRadius: 14,
+                padding: "10px",
+                textAlign: "center",
+                background: isToday
+                  ? "linear-gradient(180deg, rgba(0,122,255,0.28) 0%, rgba(0,122,255,0.10) 100%)"
+                  : hoverDate === d
                   ? "rgba(255,255,255,0.08)"
                   : "rgba(255,255,255,0.03)",
-              transition: "background 120ms ease",
-            }}
-          >
-            <div style={{ fontSize: 13, fontWeight: 900 }}>{fmtDow(d)}</div>
-            <div style={{ fontSize: 12, opacity: 0.6 }}>{fmtMD(d)}</div>
-          </div>
-        ))}
+                border: isToday
+                  ? "1px solid rgba(0,122,255,0.45)"
+                  : "1px solid rgba(255,255,255,0.08)",
+                transition: "background 120ms ease, border 120ms ease",
+              }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 900 }}>{fmtDow(d)}</div>
+              <div style={{ fontSize: 12, opacity: 0.6 }}>{fmtMD(d)}</div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Body */}
@@ -236,7 +247,7 @@ export default function CrewSchedulesGrid({
                 onClick={() => toggleDept(dept)}
                 style={{
                   width: "100%",
-                  borderRadius: 12,
+                  borderRadius: 14,
                   padding: "10px 12px",
                   border: "1px solid rgba(255,255,255,0.10)",
                   background: "rgba(255,255,255,0.04)",
@@ -244,10 +255,13 @@ export default function CrewSchedulesGrid({
                   alignItems: "center",
                   gap: 10,
                   cursor: "pointer",
+                  fontWeight: 800,
+                  color: "rgba(255,255,255,0.88)",
                 }}
               >
-                ▶ <strong>{dept}</strong>
-                <span style={{ marginLeft: "auto", opacity: 0.7 }}>
+                <span style={{ opacity: 0.7 }}>{open ? "v" : ">"}</span>
+                {dept}
+                <span style={{ marginLeft: "auto", opacity: 0.6 }}>
                   {people.length}
                 </span>
               </button>
@@ -272,8 +286,9 @@ export default function CrewSchedulesGrid({
                           borderRadius: 12,
                           padding: "10px 12px",
                           background: rowHover
-                            ? "rgba(255,255,255,0.08)"
+                            ? "rgba(255,255,255,0.10)"
                             : "rgba(255,255,255,0.03)",
+                          border: "1px solid rgba(255,255,255,0.08)",
                         }}
                       >
                         <div style={{ fontWeight: 900 }}>{c.crew_name}</div>
@@ -298,15 +313,15 @@ export default function CrewSchedulesGrid({
                             style={{
                               ...cellBase,
                               background: working
-                                ? "rgba(120,200,255,0.22)"
+                                ? "linear-gradient(180deg, rgba(90,150,255,0.32) 0%, rgba(90,150,255,0.16) 100%)"
                                 : hover
                                 ? "rgba(255,255,255,0.05)"
                                 : "rgba(255,255,255,0.02)",
                               border: working
-                                ? "1px solid rgba(120,200,255,0.35)"
+                                ? "1px solid rgba(90,150,255,0.40)"
                                 : "1px solid rgba(255,255,255,0.08)",
                               boxShadow: hover
-                                ? "0 4px 14px rgba(0,0,0,0.25)"
+                                ? "0 6px 16px rgba(0,0,0,0.25)"
                                 : "none",
                               transform: hover ? "translateY(-1px)" : "none",
                               opacity: savePaused ? 0.6 : 1,

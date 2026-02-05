@@ -1,6 +1,7 @@
 // src/tabs/PlannerTab.js
 import { useEffect, useMemo, useState } from "react";
 
+import { Segmented } from "../components/ui/Segmented";
 import useRosterData from "./planner/useRosterData";
 import CrewSchedulesGrid from "./planner/CrewSchedulesGrid";
 import CrewSchedulesDayView from "./planner/CrewSchedulesDayView";
@@ -77,121 +78,135 @@ export default function PlannerTab({
     );
   }
 
-  return (
-    <div style={S.page}>
-      {/* Page header */}
-      <div style={S.pageHeader}>
-        <div>
-          <div style={S.pageTitle}>Training Planner</div>
-          <div style={S.pageSubtitle}>
-            Plan training and manage crew schedules.
-          </div>
-        </div>
-      </div>
+  const saveState = useMemo(() => {
+    if (roster?.savePaused) return { label: "Offline", tone: "bad" };
+    if (roster?.isSaving) return { label: "Saving", tone: "info" };
+    if (roster?.savedPulse) return { label: "Saved", tone: "good" };
+    return null;
+  }, [roster?.savePaused, roster?.isSaving, roster?.savedPulse]);
 
-      {/* Top toggle */}
-      <div style={{ ...S.card, padding: 12, marginTop: 12 }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <div style={{ fontSize: 13, fontWeight: 900 }}>Planner</div>
+  const heroCard = {
+    ...S.card,
+    padding: 18,
+    borderRadius: 22,
+    background:
+      "linear-gradient(150deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 55%, rgba(0,0,0,0.2) 100%)",
+  };
+
+  const heroTitle = {
+    fontSize: 24,
+    fontWeight: 800,
+    letterSpacing: "-0.02em",
+    margin: 0,
+  };
+
+  const heroSubtitle = {
+    fontSize: 13,
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.68)",
+  };
+
+  const pill = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.06)",
+    fontSize: 12,
+    fontWeight: 700,
+    color: "rgba(255,255,255,0.86)",
+  };
+
+  const controlCard = {
+    ...S.card,
+    padding: 16,
+    borderRadius: 20,
+  };
+
+  const controlRow = {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
+  };
+
+  const inputStyle = { ...S.input, height: 36, maxWidth: 360 };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Hero */}
+      <div style={heroCard}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 16,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ minWidth: 220 }}>
+            <div style={heroTitle}>Training Planner</div>
+            <div style={heroSubtitle}>
+              Plan training and manage crew schedules in one place.
+            </div>
+          </div>
 
           <div
             style={{
-              display: "inline-flex",
-              borderRadius: 12,
-              padding: 4,
-              border: "1px solid rgba(255,255,255,0.12)",
-              background: "rgba(255,255,255,0.06)",
-              gap: 4,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
             }}
           >
-            <button
-              onClick={() => setPlannerView("training")}
-              style={{
-                ...S.secondaryBtn,
-                height: 34,
-                padding: "0 12px",
-                borderRadius: 10,
-                background:
-                  plannerView === "training"
-                    ? "rgba(90,150,255,0.25)"
-                    : "rgba(255,255,255,0.02)",
-                border:
-                  plannerView === "training"
-                    ? "1px solid rgba(90,150,255,0.45)"
-                    : "1px solid rgba(255,255,255,0.10)",
-                fontWeight: 900,
-              }}
-            >
-              Training Schedules
-            </button>
+            <Segmented
+              value={plannerView}
+              onChange={(v) => setPlannerView(v)}
+              options={[
+                { value: "training", label: "Training" },
+                { value: "crew", label: "Crew" },
+              ]}
+            />
 
-            <button
-              onClick={() => setPlannerView("crew")}
-              style={{
-                ...S.secondaryBtn,
-                height: 34,
-                padding: "0 12px",
-                borderRadius: 10,
-                background:
-                  plannerView === "crew"
-                    ? "rgba(90,150,255,0.25)"
-                    : "rgba(255,255,255,0.02)",
-                border:
-                  plannerView === "crew"
-                    ? "1px solid rgba(90,150,255,0.45)"
-                    : "1px solid rgba(255,255,255,0.10)",
-                fontWeight: 900,
-              }}
-            >
-              Crew Schedules
-            </button>
+            {plannerView === "crew" && weekLabel && (
+              <span style={pill}>Week of {weekLabel}</span>
+            )}
+
+            {plannerView === "crew" && saveState ? (
+              <span style={S.badge(saveState.tone)}>{saveState.label}</span>
+            ) : null}
+
+            {plannerView === "crew" && roster?.savePaused ? (
+              <button
+                style={S.button("ghost")}
+                onClick={roster.retrySaving}
+              >
+                Retry sync
+              </button>
+            ) : null}
           </div>
-
-          {/* Crew save status */}
-          {plannerView === "crew" ? (
-            <div
-              style={{
-                marginLeft: "auto",
-                display: "flex",
-                gap: 10,
-                alignItems: "center",
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 900 }}>
-                {roster?.isSaving
-                  ? "Saving…"
-                  : roster?.savedPulse
-                  ? "Saved"
-                  : ""}
-              </div>
-
-              {roster?.savePaused ? (
-                <button
-                  style={{
-                    ...S.secondaryBtn,
-                    height: 34,
-                    padding: "0 12px",
-                    border: "1px solid rgba(255,120,120,0.35)",
-                  }}
-                  onClick={roster.retrySaving}
-                >
-                  Retry
-                </button>
-              ) : null}
-            </div>
-          ) : null}
         </div>
 
         {plannerView === "crew" && roster?.savePaused ? (
           <div
             style={{
-              marginTop: 10,
-              fontSize: 13,
-              color: "rgba(255,120,120,0.95)",
+              marginTop: 12,
+              padding: "10px 12px",
+              borderRadius: 14,
+              border: "1px solid rgba(255,59,48,0.35)",
+              background: "rgba(255,59,48,0.12)",
+              color: "rgba(255,210,208,0.95)",
+              fontSize: 12,
+              fontWeight: 700,
             }}
           >
             Connection issue. Editing is paused.
-            <div style={{ marginTop: 6 }}>{roster.saveError}</div>
+            <div style={{ marginTop: 6, opacity: 0.9 }}>
+              {roster.saveError}
+            </div>
           </div>
         ) : null}
       </div>
@@ -212,139 +227,96 @@ export default function PlannerTab({
       {/* CREW VIEW */}
       {plannerView === "crew" ? (
         <>
-          {/* Crew controls */}
-          <div
-            style={{
-              marginTop: 12,
-              display: "flex",
-              gap: 10,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            <button
-              style={S.secondaryBtn}
-              onClick={() => roster.shiftWeek(-1)}
-              disabled={roster?.savePaused}
-              title="Previous week"
-            >
-              Prev
-            </button>
+          <div style={controlCard}>
+            <div style={controlRow}>
+              <Segmented
+                value={crewViewMode}
+                onChange={(v) => setCrewViewMode(v)}
+                options={[
+                  { value: "grid", label: "Week grid" },
+                  { value: "day", label: "Single day" },
+                ]}
+              />
 
-            <button
-              style={S.secondaryBtn}
-              onClick={() => roster.shiftWeek(1)}
-              disabled={roster?.savePaused}
-              title="Next week"
-            >
-              Next
-            </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  style={S.button("ghost", roster?.savePaused)}
+                  onClick={() => roster.shiftWeek(-1)}
+                  disabled={roster?.savePaused}
+                  title="Previous week"
+                >
+                  Prev
+                </button>
 
-            <div
-              style={{
-                display: "inline-flex",
-                borderRadius: 12,
-                padding: 4,
-                border: "1px solid rgba(255,255,255,0.12)",
-                background: "rgba(255,255,255,0.06)",
-                gap: 4,
-              }}
-            >
-              <button
-                style={{
-                  ...S.secondaryBtn,
-                  height: 32,
-                  padding: "0 10px",
-                  borderRadius: 10,
-                  background:
-                    crewViewMode === "grid"
-                      ? "rgba(90,150,255,0.22)"
-                      : "rgba(255,255,255,0.02)",
-                  border:
-                    crewViewMode === "grid"
-                      ? "1px solid rgba(90,150,255,0.40)"
-                      : "1px solid rgba(255,255,255,0.10)",
-                  fontWeight: 900,
-                }}
-                onClick={() => setCrewViewMode("grid")}
-              >
-                Grid
-              </button>
+                <button
+                  style={S.button("ghost", roster?.savePaused)}
+                  onClick={() => roster.shiftWeek(1)}
+                  disabled={roster?.savePaused}
+                  title="Next week"
+                >
+                  Next
+                </button>
+              </div>
 
-              <button
-                style={{
-                  ...S.secondaryBtn,
-                  height: 32,
-                  padding: "0 10px",
-                  borderRadius: 10,
-                  background:
-                    crewViewMode === "day"
-                      ? "rgba(90,150,255,0.22)"
-                      : "rgba(255,255,255,0.02)",
-                  border:
-                    crewViewMode === "day"
-                      ? "1px solid rgba(90,150,255,0.40)"
-                      : "1px solid rgba(255,255,255,0.10)",
-                  fontWeight: 900,
-                }}
-                onClick={() => setCrewViewMode("day")}
-              >
-                Day
-              </button>
+              {weekLabel ? (
+                <span style={{ ...pill, marginLeft: "auto" }}>{weekLabel}</span>
+              ) : null}
             </div>
 
-            <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 900 }}>
-              Week: {weekLabel}
-            </span>
-          </div>
-
-          {/* Day picker (Day view only) */}
-          {crewViewMode === "day" ? (
-            <div
-              style={{
-                marginTop: 8,
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-              }}
-            >
-              <button
-                style={S.secondaryBtn}
-                onClick={() => setDayISO((d) => dayMinus1(d))}
-                disabled={roster?.savePaused || !dayISO}
-                title="Previous day"
-              >
-                ◀
-              </button>
-
+            <div style={{ ...controlRow, marginTop: 10 }}>
               <input
-                type="date"
-                value={dayISO || ""}
-                onChange={(e) => setDayISO(e.target.value)}
-                style={{ ...S.input, height: 34, maxWidth: 190 }}
+                value={crewSearch || ""}
+                onChange={(e) => setCrewSearch(e.target.value)}
+                placeholder="Search crew or department"
+                style={inputStyle}
                 disabled={roster?.savePaused}
               />
 
-              <button
-                style={S.secondaryBtn}
-                onClick={() => setDayISO((d) => dayPlus1(d))}
-                disabled={roster?.savePaused || !dayISO}
-                title="Next day"
-              >
-                ▶
-              </button>
+              {crewViewMode === "day" ? (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: 6,
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(255,255,255,0.06)",
+                  }}
+                >
+                  <button
+                    style={S.button("ghost", roster?.savePaused || !dayISO)}
+                    onClick={() => setDayISO((d) => dayMinus1(d))}
+                    disabled={roster?.savePaused || !dayISO}
+                    title="Previous day"
+                  >
+                    ◀
+                  </button>
+
+                  <input
+                    type="date"
+                    value={dayISO || ""}
+                    onChange={(e) => setDayISO(e.target.value)}
+                    style={{ ...S.input, height: 34, maxWidth: 190 }}
+                    disabled={roster?.savePaused}
+                  />
+
+                  <button
+                    style={S.button("ghost", roster?.savePaused || !dayISO)}
+                    onClick={() => setDayISO((d) => dayPlus1(d))}
+                    disabled={roster?.savePaused || !dayISO}
+                    title="Next day"
+                  >
+                    ▶
+                  </button>
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          </div>
 
           {/* View render */}
           {crewViewMode === "grid" ? (
-            <CrewSchedulesGrid
-              S={S}
-              roster={roster}
-              search={crewSearch}
-              setSearch={setCrewSearch}
-              weekLabel={weekLabel}
-            />
+            <CrewSchedulesGrid S={S} roster={roster} search={crewSearch} />
           ) : (
             <CrewSchedulesDayView
               S={S}

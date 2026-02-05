@@ -1,38 +1,48 @@
 export default function ExecuteDayModal({
-    S,
-    open,
-    busy,
-    error,
-  
-    completedOn,
-    setCompletedOn,
-    completedBy,
-    setCompletedBy,
-    notes,
-    setNotes,
-  
-    confirmed,
-    setConfirmed,
-  
-    onConfirm,
-    onClose,
-  }) {
-    if (!open) return null;
-  
-    return (
-      <div style={S.modalOverlay} onMouseDown={onClose}>
-        <div style={S.modalCard} onMouseDown={(e) => e.stopPropagation()}>
-          <div style={{ fontSize: 18, fontWeight: 900 }}>Execute day</div>
-  
-          <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
-            This will mark training records complete for all trainings in this
-            group for included attendees.
+  S,
+  open,
+  busy,
+  error,
+
+  completedOn,
+  setCompletedOn,
+  completedBy,
+  setCompletedBy,
+  notes,
+  setNotes,
+
+  confirmed,
+  setConfirmed,
+
+  onConfirm,
+  onClose,
+}) {
+  if (!open) return null;
+
+  const field = { display: "grid", gap: 6 };
+  const label = {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "rgba(255,255,255,0.7)",
+  };
+  const disableConfirm = busy || !confirmed || !completedBy.trim();
+
+  return (
+    <div style={S.modalOverlay} onMouseDown={onClose}>
+      <div style={S.modalCard} onMouseDown={(e) => e.stopPropagation()}>
+        <div style={S.modalHeader}>
+          <div>
+            <div style={S.modalTitle}>Execute day</div>
+            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
+              Marks training records complete for included attendees.
+            </div>
           </div>
-  
-          <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
-            {/* Completed on */}
-            <div style={S.field}>
-              <div style={S.label}>Completed on</div>
+        </div>
+
+        <div style={S.modalBody}>
+          <div style={{ display: "grid", gap: 12 }}>
+            <div style={field}>
+              <div style={label}>Completed on</div>
               <input
                 type="date"
                 value={completedOn}
@@ -40,10 +50,9 @@ export default function ExecuteDayModal({
                 style={S.input}
               />
             </div>
-  
-            {/* Completed by */}
-            <div style={S.field}>
-              <div style={S.label}>Completed by</div>
+
+            <div style={field}>
+              <div style={label}>Completed by</div>
               <input
                 value={completedBy}
                 onChange={(e) => setCompletedBy(e.target.value)}
@@ -51,10 +60,9 @@ export default function ExecuteDayModal({
                 style={S.input}
               />
             </div>
-  
-            {/* Notes */}
-            <div style={S.field}>
-              <div style={S.label}>Notes</div>
+
+            <div style={field}>
+              <div style={label}>Notes</div>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
@@ -67,8 +75,7 @@ export default function ExecuteDayModal({
                 }}
               />
             </div>
-  
-            {/* Confirmation */}
+
             <label
               style={{
                 display: "flex",
@@ -85,15 +92,13 @@ export default function ExecuteDayModal({
               />
               I understand this will mark records complete for included attendees.
             </label>
-  
-            {/* Error */}
+
             {error ? (
               <div style={{ color: "rgba(255,120,120,0.95)", fontSize: 13 }}>
                 {error}
               </div>
             ) : null}
-  
-            {/* Actions */}
+
             <div
               style={{
                 display: "flex",
@@ -101,25 +106,12 @@ export default function ExecuteDayModal({
                 gap: 10,
               }}
             >
-              <button
-                style={S.secondaryBtn}
-                onClick={onClose}
-                disabled={busy}
-              >
+              <button style={S.button("ghost", busy)} onClick={onClose} disabled={busy}>
                 Cancel
               </button>
-  
               <button
-                style={{
-                  ...S.primaryBtn,
-                  opacity:
-                    busy || !confirmed || !completedBy.trim() ? 0.6 : 1,
-                  cursor:
-                    busy || !confirmed || !completedBy.trim()
-                      ? "not-allowed"
-                      : "pointer",
-                }}
-                disabled={busy || !confirmed || !completedBy.trim()}
+                style={S.button("primary", disableConfirm)}
+                disabled={disableConfirm}
                 onClick={onConfirm}
               >
                 {busy ? "Executing…" : "Execute"}
@@ -128,6 +120,6 @@ export default function ExecuteDayModal({
           </div>
         </div>
       </div>
-    );
-  }
-  
+    </div>
+  );
+}

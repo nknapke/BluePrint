@@ -45,6 +45,14 @@ export default function CrewSchedulesDayView({ S, roster, dateISO, search }) {
     }));
   }, [filteredCrew]);
 
+  const workingCount = useMemo(() => {
+    if (!dateISO) return 0;
+    return filteredCrew.reduce((acc, c) => {
+      const on = roster?.isWorking?.(dateISO, c.id) ? 1 : 0;
+      return acc + on;
+    }, 0);
+  }, [filteredCrew, roster, dateISO]);
+
   /* ---------- bulk actions ---------- */
 
   const setAll = (value) => {
@@ -59,23 +67,43 @@ export default function CrewSchedulesDayView({ S, roster, dateISO, search }) {
     roster.toggleCell(dateISO, crewId);
   };
 
+  const panel = {
+    ...S.card,
+    padding: 16,
+    borderRadius: 20,
+  };
+
   return (
     <div style={{ marginTop: 12 }}>
-      <div style={S.card}>
-        <div style={S.cardHeaderRow}>
-          <div style={S.cardTitle}>{prettyDate(dateISO)}</div>
+      <div style={panel}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>
+              {prettyDate(dateISO)}
+            </div>
+            <div style={{ ...S.helper, marginTop: 4 }}>
+              {workingCount} working · {filteredCrew.length - workingCount} off
+            </div>
+          </div>
 
-          {/* Global bulk buttons */}
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button
-              style={S.secondaryBtn}
+              style={S.button("ghost", savePaused)}
               onClick={() => setAll(true)}
               disabled={savePaused}
             >
               All On
             </button>
             <button
-              style={S.secondaryBtn}
+              style={S.button("ghost", savePaused)}
               onClick={() => setAll(false)}
               disabled={savePaused}
             >
@@ -85,24 +113,24 @@ export default function CrewSchedulesDayView({ S, roster, dateISO, search }) {
         </div>
 
         {grouped.length === 0 ? (
-          <div style={S.helpText}>No crew found.</div>
+          <div style={S.helper}>No crew found.</div>
         ) : (
           grouped.map(({ dept, people }) => (
             <div key={dept} style={{ marginTop: 14 }}>
-              {/* Department label only */}
               <div
                 style={{
                   fontSize: 13,
-                  fontWeight: 900,
+                  fontWeight: 800,
                   opacity: 0.85,
-                  marginBottom: 6,
+                  marginBottom: 8,
+                  letterSpacing: "0.01em",
+                  textTransform: "uppercase",
                 }}
               >
                 {dept}
               </div>
 
-              {/* Crew rows */}
-              <div style={{ display: "grid", gap: 6 }}>
+              <div style={{ display: "grid", gap: 8 }}>
                 {people.map((c) => {
                   const working = roster.isWorking(dateISO, c.id);
                   return (
@@ -114,19 +142,22 @@ export default function CrewSchedulesDayView({ S, roster, dateISO, search }) {
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
-                        padding: "10px 12px",
-                        borderRadius: 12,
-                        border: "1px solid rgba(255,255,255,0.10)",
+                        padding: "12px 14px",
+                        borderRadius: 14,
+                        border: working
+                          ? "1px solid rgba(90,150,255,0.40)"
+                          : "1px solid rgba(255,255,255,0.10)",
                         background: working
-                          ? "rgba(120,200,255,0.22)"
+                          ? "linear-gradient(180deg, rgba(90,150,255,0.28) 0%, rgba(90,150,255,0.14) 100%)"
                           : "rgba(255,255,255,0.04)",
                         cursor: savePaused ? "not-allowed" : "pointer",
-                        fontWeight: 800,
-                        transition: "background 120ms ease",
+                        fontWeight: 700,
+                        transition:
+                          "background 120ms ease, border 120ms ease",
                       }}
                     >
                       <span>{c.crew_name}</span>
-                      <span style={{ fontSize: 12, opacity: 0.85 }}>
+                      <span style={{ fontSize: 12, opacity: 0.8 }}>
                         {working ? "Working" : "Off"}
                       </span>
                     </button>

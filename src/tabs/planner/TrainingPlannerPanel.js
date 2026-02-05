@@ -22,6 +22,33 @@ function clampText(s, n = 180) {
   return t.slice(0, n - 1) + "…";
 }
 
+function statusMeta(status) {
+  const label = String(status || "Open");
+  const normalized = label.toLowerCase();
+
+  if (normalized.includes("execute") || normalized.includes("complete")) {
+    return { label, tone: "good" };
+  }
+
+  if (
+    normalized.includes("open") ||
+    normalized.includes("draft") ||
+    normalized.includes("plan")
+  ) {
+    return { label: label || "Open", tone: "info" };
+  }
+
+  if (normalized.includes("hold") || normalized.includes("pause")) {
+    return { label, tone: "warn" };
+  }
+
+  if (normalized.includes("cancel") || normalized.includes("error")) {
+    return { label, tone: "bad" };
+  }
+
+  return { label, tone: null };
+}
+
 /* ---------------- TrainingPlannerPanel ---------------- */
 
 export default function TrainingPlannerPanel({
@@ -76,6 +103,21 @@ export default function TrainingPlannerPanel({
     () => new Map(trainingGroups.map((g) => [Number(g.id), g])),
     [trainingGroups]
   );
+
+  const selectedDay = useMemo(
+    () => days.find((d) => d.id === selectedDayId) || null,
+    [days, selectedDayId]
+  );
+
+  const attendeeCounts = useMemo(() => {
+    let included = 0;
+    let excluded = 0;
+    for (const a of attendees) {
+      if (a.included) included += 1;
+      else excluded += 1;
+    }
+    return { included, excluded };
+  }, [attendees]);
 
   /* ---------------- data loading ---------------- */
 
@@ -242,17 +284,56 @@ export default function TrainingPlannerPanel({
 
   /* ---------------- render ---------------- */
 
+  const sectionCard = {
+    ...S.card,
+    padding: 16,
+    borderRadius: 20,
+  };
+
+  const sectionTitle = {
+    fontSize: 15,
+    fontWeight: 800,
+    letterSpacing: "-0.01em",
+  };
+
+  const sectionSub = {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.6)",
+  };
+
   return (
     <div style={{ marginTop: 14 }}>
       {/* Generate */}
-      <div style={S.card}>
-        <div style={S.cardHeaderRow}>
-          <div style={S.cardTitle}>Generate plan</div>
+      <div style={sectionCard}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <div style={sectionTitle}>Generate plan</div>
+            <div style={sectionSub}>
+              Build a 14-day plan from the selected start date.
+            </div>
+          </div>
+
+          <button
+            style={S.button("primary", isGenerating || !locId)}
+            onClick={generatePlan}
+            disabled={isGenerating || !locId}
+          >
+            {isGenerating ? "Generating…" : "Generate 14-day plan"}
+          </button>
         </div>
 
-        <div style={S.row}>
-          <div style={S.field}>
-            <div style={S.label}>Start date</div>
+        <div style={{ marginTop: 12, display: "flex", gap: 12 }}>
+          <div style={{ minWidth: 200 }}>
+            <div style={{ ...S.helper, marginBottom: 6 }}>Start date</div>
             <input
               type="date"
               value={startDate}
@@ -261,19 +342,15 @@ export default function TrainingPlannerPanel({
             />
           </div>
 
-          <div style={{ ...S.field, alignSelf: "flex-end" }}>
-            <button
-              style={S.primaryBtn}
-              onClick={generatePlan}
-              disabled={isGenerating || !locId}
-            >
-              {isGenerating ? "Generating…" : "Generate 14-day plan"}
-            </button>
-          </div>
+          {planId ? (
+            <div style={{ display: "flex", alignItems: "flex-end" }}>
+              <span style={S.badge("info")}>Plan #{planId}</span>
+            </div>
+          ) : null}
         </div>
 
         {genError && (
-          <div style={{ ...S.helpText, color: "rgba(255,120,120,0.95)" }}>
+          <div style={{ ...S.helper, color: "rgba(255,120,120,0.95)" }}>
             {genError}
           </div>
         )}
@@ -283,118 +360,204 @@ export default function TrainingPlannerPanel({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1.25fr 1fr",
+          gridTemplateColumns: "minmax(320px, 1.2fr) minmax(280px, 0.9fr)",
           gap: 14,
           marginTop: 14,
         }}
       >
         {/* Days list */}
-        <div style={S.card}>
-          <div style={S.cardTitle}>14-day schedule</div>
+        <div style={sectionCard}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={sectionTitle}>14-day schedule</div>
+              <div style={sectionSub}>
+                Select a day to review the attendee list.
+              </div>
+            </div>
 
-          {daysLoading && <div style={S.helpText}>Loading…</div>}
+            {days.length ? (
+              <span style={S.badge("info")}>{days.length} days</span>
+            ) : null}
+          </div>
+
+          {daysLoading && <div style={S.helper}>Loading…</div>}
           {daysError && (
-            <div style={{ ...S.helpText, color: "rgba(255,120,120,0.95)" }}>
+            <div style={{ ...S.helper, color: "rgba(255,120,120,0.95)" }}>
               {daysError}
             </div>
           )}
 
-          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-            {days.map((d) => {
-              const g = trainingGroupById.get(d.training_group_id);
-              const isSelected = d.id === selectedDayId;
+          {days.length === 0 && !daysLoading ? (
+            <div style={{ marginTop: 12, ...S.helper }}>
+              Generate a plan to see the schedule.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+              {days.map((d) => {
+                const g = trainingGroupById.get(d.training_group_id);
+                const isSelected = d.id === selectedDayId;
+                const meta = statusMeta(d.status);
+                const badgeStyle = meta.tone ? S.badge(meta.tone) : S.badge();
 
-              return (
-                <button
-                  key={d.id}
-                  onClick={() => setSelectedDayId(d.id)}
-                  style={{
-                    textAlign: "left",
-                    padding: 12,
-                    borderRadius: 14,
-                    border: isSelected
-                      ? "1px solid rgba(90,150,255,0.55)"
-                      : "1px solid rgba(255,255,255,0.10)",
-                    background: isSelected
-                      ? "rgba(90,150,255,0.20)"
-                      : "rgba(255,255,255,0.06)",
-                    cursor: "pointer",
-                  }}
-                >
-                  <div style={{ fontWeight: 900 }}>
-                    {prettyDate(d.plan_date)}
-                  </div>
-                  <div style={{ fontSize: 12, opacity: 0.85 }}>
-                    {g?.name || "No group"} · {d.people_affected} affected
-                  </div>
-                  {d.reasoning_summary && (
-                    <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>
-                      {clampText(d.reasoning_summary)}
+                return (
+                  <button
+                    key={d.id}
+                    onClick={() => setSelectedDayId(d.id)}
+                    style={{
+                      textAlign: "left",
+                      padding: 14,
+                      borderRadius: 16,
+                      border: isSelected
+                        ? "1px solid rgba(0,122,255,0.55)"
+                        : "1px solid rgba(255,255,255,0.10)",
+                      background: isSelected
+                        ? "linear-gradient(180deg, rgba(0,122,255,0.18) 0%, rgba(0,122,255,0.08) 100%)"
+                        : "rgba(255,255,255,0.05)",
+                      boxShadow: isSelected
+                        ? "0 14px 30px rgba(0,122,255,0.18)"
+                        : "none",
+                      cursor: "pointer",
+                      display: "grid",
+                      gap: 6,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div style={{ fontWeight: 800 }}>
+                        {prettyDate(d.plan_date)}
+                      </div>
+                      <span style={badgeStyle}>{meta.label}</span>
+                      <span style={S.badge("warn")}>
+                        {d.people_affected} affected
+                      </span>
                     </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+
+                    <div style={{ fontSize: 12, opacity: 0.78 }}>
+                      {g?.name || "No group"}
+                    </div>
+
+                    {d.reasoning_summary && (
+                      <div style={{ fontSize: 12, opacity: 0.65 }}>
+                        {clampText(d.reasoning_summary)}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Attendees */}
-        <div style={S.card}>
-          <div style={S.cardTitle}>Attendees</div>
+        <div style={sectionCard}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={sectionTitle}>
+                {selectedDay ? prettyDate(selectedDay.plan_date) : "Attendees"}
+              </div>
+              <div style={sectionSub}>
+                {selectedDay
+                  ? "Review, include, or exclude crew for this day."
+                  : "Select a day to view attendees."}
+              </div>
+            </div>
 
-          {!selectedDayId ? (
-            <div style={S.helpText}>Select a day.</div>
+            {selectedDay ? (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <span style={S.badge("info")}>{attendeeCounts.included} in</span>
+                <span style={S.badge("warn")}>{attendeeCounts.excluded} out</span>
+              </div>
+            ) : null}
+          </div>
+
+          {!selectedDay ? (
+            <div style={{ marginTop: 12, ...S.helper }}>Select a day.</div>
           ) : attendeesLoading ? (
-            <div style={S.helpText}>Loading attendees…</div>
+            <div style={{ marginTop: 12, ...S.helper }}>Loading attendees…</div>
           ) : attendeesError ? (
-            <div style={{ ...S.helpText, color: "rgba(255,120,120,0.95)" }}>
+            <div
+              style={{
+                marginTop: 12,
+                ...S.helper,
+                color: "rgba(255,120,120,0.95)",
+              }}
+            >
               {attendeesError}
             </div>
           ) : (
-            <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-              {attendees.map((a) => (
-                <div
-                  key={a.crewId}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "10px 12px",
-                    borderRadius: 12,
-                    border: "1px solid rgba(255,255,255,0.10)",
-                    background: "rgba(255,255,255,0.06)",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 900 }}>{a.name}</div>
-                    <div style={{ fontSize: 12, opacity: 0.7 }}>{a.source}</div>
-                  </div>
+            <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+              {attendees.map((a) => {
+                const includeAction = a.included ? "Exclude" : "Include";
+                const actionVariant = a.included ? "ghost" : "primary";
 
-                  <button
-                    onClick={() => toggleAttendee(a)}
-                    disabled={savingCrewId === a.crewId}
-                    style={S.secondaryBtn}
+                return (
+                  <div
+                    key={a.crewId}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "12px 14px",
+                      borderRadius: 14,
+                      border: "1px solid rgba(255,255,255,0.10)",
+                      background: a.included
+                        ? "rgba(255,255,255,0.05)"
+                        : "rgba(255,255,255,0.02)",
+                    }}
                   >
-                    {a.included ? "Exclude" : "Include"}
-                  </button>
-                </div>
-              ))}
+                    <div>
+                      <div style={{ fontWeight: 800 }}>{a.name}</div>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>
+                        {a.source || "Auto"}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => toggleAttendee(a)}
+                      disabled={savingCrewId === a.crewId}
+                      style={S.button(actionVariant, savingCrewId === a.crewId)}
+                    >
+                      {includeAction}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
-          {selectedDayId && (
+          {selectedDay ? (
             <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-              <button style={S.primaryBtn} onClick={() => setExecuteOpen(true)}>
+              <button style={S.button("primary")} onClick={() => setExecuteOpen(true)}>
                 Execute day
               </button>
-              <button
-                style={S.secondaryBtn}
-                onClick={() => setReopenOpen(true)}
-              >
+              <button style={S.button("ghost")} onClick={() => setReopenOpen(true)}>
                 Reopen day
               </button>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
