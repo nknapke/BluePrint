@@ -1,20 +1,62 @@
-// TrainingsTab.js
+// TrainingsTab.tsx
 // Keeps ALL existing features (edit, add group inline, pills, search, expand/collapse)
 // Adds a new grouping view: By Group (and keeps By Status as an option)
 
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { Segmented } from "../components/ui/Segmented";
 import { useExpandableKeys } from "../hooks/useExpandableKeys";
+import type { YesNo } from "../app/constants";
+import type { Training, TrainingGroup } from "../types/domain";
 
 /** ---------- helpers ---------- */
 
-function formatExpiryLabel(weeks) {
+function formatExpiryLabel(weeks?: number | null) {
   const n = Number(weeks || 0);
   if (!n) return "Never";
   return `${n}w`;
 }
 
 /** ---------- Main ---------- */
+
+type TrainingsTabProps = {
+  S: any;
+  trainings: Training[];
+  trainingsLoading: boolean;
+  trainingsError: string;
+  trainingGroups: TrainingGroup[];
+  trainingGroupsLoading: boolean;
+  trainingGroupsError: string;
+  createTrainingGroup: (name: string) => Promise<number | null>;
+  editingTrainingId: number | null;
+  editTrainingName: string;
+  setEditTrainingName: Dispatch<SetStateAction<string>>;
+  editTrainingActive: YesNo;
+  setEditTrainingActive: Dispatch<SetStateAction<YesNo>>;
+  editTrainingSaving: boolean;
+  editTrainingExpiryWeeks: string;
+  setEditTrainingExpiryWeeks: Dispatch<SetStateAction<string>>;
+  editTrainingGroupId: string;
+  setEditTrainingGroupId: Dispatch<SetStateAction<string>>;
+  addTrainingDefinition: () => void;
+  deleteTrainingDefinition: (row: Training) => Promise<void>;
+  startEditTraining: (row: Training) => void;
+  cancelEditTraining: () => void;
+  saveEditTraining: (row: Training) => Promise<void>;
+  loadTrainings: (force?: boolean) => Promise<void>;
+};
+
+type GroupCounts = { active: number; inactive: number };
+
+type GroupedBlock = {
+  key: string;
+  title: string;
+  sortOrder?: number | null;
+  items: Training[];
+  counts: GroupCounts;
+};
+
+type GroupView = "group" | "status";
 
 export default function TrainingsTab({
   S,
@@ -23,7 +65,7 @@ export default function TrainingsTab({
   trainingsLoading,
   trainingsError,
 
-  trainingGroups = /** @type {any[]} */ ([]),
+  trainingGroups = [],
   trainingGroupsLoading,
   trainingGroupsError,
   createTrainingGroup,
@@ -47,15 +89,18 @@ export default function TrainingsTab({
   cancelEditTraining,
   saveEditTraining,
   loadTrainings,
-}) {
+}: TrainingsTabProps) {
   const [q, setQ] = useState("");
-  const [groupView, setGroupView] = useState("group"); // "group" | "status"
+  const [groupView, setGroupView] = useState<GroupView>("group");
+  const handleGroupViewChange = (value: string) => {
+    setGroupView(value === "status" ? "status" : "group");
+  };
 
   const groupById = useMemo(() => {
     return new Map((trainingGroups || []).map((g) => [String(g.id), g]));
   }, [trainingGroups]);
 
-  const baseList = useMemo(() => {
+  const baseList = useMemo<Training[]>(() => {
     const list = Array.isArray(trainings) ? trainings : [];
     const query = (q || "").trim().toLowerCase();
     if (!query) return list;
@@ -77,9 +122,9 @@ export default function TrainingsTab({
     });
   }, [trainings, q, groupById]);
 
-  const grouped = useMemo(() => {
+  const grouped = useMemo<GroupedBlock[]>(() => {
     if (groupView === "group") {
-      const map = new Map();
+      const map = new Map<string, GroupedBlock>();
 
       for (const t of baseList) {
         const key =
@@ -105,6 +150,7 @@ export default function TrainingsTab({
         }
 
         const g = map.get(key);
+        if (!g) continue;
         g.items.push(t);
         if (t.active) g.counts.active += 1;
         else g.counts.inactive += 1;
@@ -133,15 +179,15 @@ export default function TrainingsTab({
       return out;
     }
 
-    const activeItems = [];
-    const inactiveItems = [];
+    const activeItems: Training[] = [];
+    const inactiveItems: Training[] = [];
 
     for (const t of baseList) {
       if (t.active) activeItems.push(t);
       else inactiveItems.push(t);
     }
 
-    const sortByNameThenId = (a, b) => {
+    const sortByNameThenId = (a: Training, b: Training) => {
       const an = String(a.name || "").localeCompare(String(b.name || ""));
       if (an !== 0) return an;
       return Number(a.id) - Number(b.id);
@@ -200,7 +246,7 @@ export default function TrainingsTab({
         <div style={{ marginBottom: 14 }}>
           <Segmented
             value={groupView}
-            onChange={setGroupView}
+            onChange={handleGroupViewChange}
             options={[
               { value: "group", label: "By Group" },
               { value: "status", label: "By Status" },

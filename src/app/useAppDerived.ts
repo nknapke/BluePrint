@@ -1,12 +1,35 @@
 import { useCallback, useMemo } from "react";
+import type {
+  Crew,
+  Requirement,
+  Signoff,
+  Track,
+  Training,
+  TrainingRecord,
+} from "../types/domain";
+
+type RequirementWithTrack = Requirement & { trackName: string };
+type RequirementWithTraining = Requirement & { trainingName: string };
+
+type RequirementsByTraining = {
+  trainingId: number;
+  trainingName: string;
+  items: RequirementWithTrack[];
+};
+
+type RequirementsByTrack = {
+  trackId: number;
+  trackName: string;
+  items: RequirementWithTraining[];
+};
 
 type Params = {
-  crew: any[];
-  tracks: any[];
-  trainings: any[];
-  requirements: any[];
-  signoffs: any[];
-  trainingRecords: any[];
+  crew: Crew[];
+  tracks: Track[];
+  trainings: Training[];
+  requirements: Requirement[];
+  signoffs: Signoff[];
+  trainingRecords: TrainingRecord[];
 
   crewNameFilter: string;
   crewDeptFilter: string;
@@ -113,7 +136,7 @@ export function useAppDerived({
       rows = rows.filter((r) => r.trainingId === idNum);
     }
 
-    const rank = (r: any) => {
+    const rank = (r: TrainingRecord) => {
       if (r.status === "Training Overdue") return 0;
       if (r.status === "Training Due") return 1;
       return 2;
@@ -166,7 +189,7 @@ export function useAppDerived({
   ]);
 
   const requirementsGroupedByTraining = useMemo(() => {
-    const map = new Map();
+    const map = new Map<number, RequirementsByTraining>();
 
     for (const r of requirements) {
       const trainingName =
@@ -180,22 +203,22 @@ export function useAppDerived({
           items: [],
         });
       }
-      map.get(r.trainingId).items.push({ ...r, trackName });
+      map.get(r.trainingId)?.items.push({ ...r, trackName });
     }
 
     for (const g of Array.from(map.values())) {
-      g.items.sort((a: any, b: any) =>
+      g.items.sort((a, b) =>
         String(a.trackName).localeCompare(String(b.trackName))
       );
     }
 
-    return Array.from(map.values()).sort((a: any, b: any) =>
+    return Array.from(map.values()).sort((a, b) =>
       String(a.trainingName).localeCompare(String(b.trainingName))
     );
   }, [requirements, trainingById, trackById]);
 
   const requirementsGroupedByTrack = useMemo(() => {
-    const map = new Map();
+    const map = new Map<number, RequirementsByTrack>();
 
     for (const r of requirements) {
       const trackName = trackById.get(r.trackId)?.name || String(r.trackId);
@@ -205,16 +228,16 @@ export function useAppDerived({
       if (!map.has(r.trackId)) {
         map.set(r.trackId, { trackId: r.trackId, trackName, items: [] });
       }
-      map.get(r.trackId).items.push({ ...r, trainingName });
+      map.get(r.trackId)?.items.push({ ...r, trainingName });
     }
 
     for (const g of Array.from(map.values())) {
-      g.items.sort((a: any, b: any) =>
+      g.items.sort((a, b) =>
         String(a.trainingName).localeCompare(String(b.trainingName))
       );
     }
 
-    return Array.from(map.values()).sort((a: any, b: any) =>
+    return Array.from(map.values()).sort((a, b) =>
       String(a.trackName).localeCompare(String(b.trackName))
     );
   }, [requirements, trainingById, trackById]);

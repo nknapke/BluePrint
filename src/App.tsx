@@ -22,6 +22,15 @@ import { useLocation } from "./context/LocationContext";
 import { useDataLoaders } from "./hooks/useDataLoaders";
 import { useHistoryModal } from "./hooks/useHistoryModal";
 import { useMarkComplete } from "./hooks/useMarkComplete";
+import type {
+  Crew,
+  Requirement,
+  Signoff,
+  Track,
+  Training,
+  TrainingGroup,
+  TrainingRecord,
+} from "./types/domain";
 
 import CrewTab from "./tabs/CrewTab";
 import TracksTab from "./tabs/TracksTab";
@@ -34,8 +43,6 @@ import PlannerTab from "./tabs/PlannerTab";
 const SUPABASE_URL = "https://aoybyypndyvuxxjymkyf.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFveWJ5eXBuZHl2dXh4anlta3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg3NDYyOTYsImV4cCI6MjA4NDMyMjI5Nn0.wfDbPsP5ItA4mn572ZtZeqjRN2X6bmbpRzUjVrnC0m0";
-
-type AnyRow = Record<string, any>;
 
 function getErrorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
@@ -601,7 +608,7 @@ export default function App() {
     }
   }
 
-  async function deleteCrewMember(crewRow: AnyRow) {
+  async function deleteCrewMember(crewRow: Crew) {
     const crewId = crewRow.id;
     const crewName = crewRow.name || `ID ${crewId}`;
 
@@ -640,7 +647,7 @@ export default function App() {
     }
   }
 
-  function startEditCrew(c: AnyRow) {
+  function startEditCrew(c: Crew) {
     setEditingCrewId(c.id);
     setEditCrewName(c.name || "");
     setEditCrewDept(c.dept || "");
@@ -654,7 +661,7 @@ export default function App() {
     setEditCrewStatus("Active");
   }
 
-  async function saveEditCrew(c: AnyRow) {
+  async function saveEditCrew(c: Crew) {
     const newName = (editCrewName || "").trim();
     if (!newName) {
       alert("Name cannot be blank.");
@@ -707,7 +714,8 @@ export default function App() {
     await loadTrainingGroups(true);
 
     const found = (trainingGroups || []).find(
-      (g: AnyRow) => String(g.name || "").toLowerCase() === clean.toLowerCase()
+      (g: TrainingGroup) =>
+        String(g.name || "").toLowerCase() === clean.toLowerCase()
     );
     if (found?.id != null) return found.id;
 
@@ -719,12 +727,13 @@ export default function App() {
     );
 
     const freshFound = (fresh || []).find(
-      (g: AnyRow) => String(g.name || "").toLowerCase() === clean.toLowerCase()
+      (g: TrainingGroup) =>
+        String(g.name || "").toLowerCase() === clean.toLowerCase()
     );
     return freshFound?.id ?? null;
   }
 
-  async function deleteTrainingDefinition(t: AnyRow) {
+  async function deleteTrainingDefinition(t: Training) {
     const ok = window.confirm(
       `Delete training?\n\nID: ${t.id}\nName: ${t.name}\n\nThis may also remove related requirements and training records if your database is set to cascade.`
     );
@@ -759,7 +768,7 @@ export default function App() {
     }
   }
 
-  function startEditTraining(t: AnyRow) {
+  function startEditTraining(t: Training) {
     setEditingTrainingId(t.id);
     setEditTrainingName(t.name || "");
     setEditTrainingActive(t.active ? "TRUE" : "FALSE");
@@ -778,7 +787,7 @@ export default function App() {
     setEditTrainingGroupId("");
   }
 
-  async function saveEditTraining(t: AnyRow) {
+  async function saveEditTraining(t: Training) {
     const newName = (editTrainingName || "").trim();
     if (!newName) {
       alert("Training name cannot be blank.");
@@ -904,7 +913,7 @@ export default function App() {
     }
   }
 
-  function startEditTrack(t: AnyRow) {
+  function startEditTrack(t: Track) {
     setEditingTrackId(t.id);
     setEditTrackName(t.name || "");
     setEditTrackActive(t.active ? "TRUE" : "FALSE");
@@ -916,7 +925,7 @@ export default function App() {
     setEditTrackActive("TRUE");
   }
 
-  async function saveEditTrack(t: AnyRow) {
+  async function saveEditTrack(t: Track) {
     const newName = (editTrackName || "").trim();
     if (!newName) {
       alert("Track name cannot be blank.");
@@ -954,7 +963,7 @@ export default function App() {
     }
   }
 
-  async function deleteTrackDefinition(t: AnyRow) {
+  async function deleteTrackDefinition(t: Track) {
     const ok = window.confirm(
       `Delete track?\n\nID: ${t.id}\nName: ${t.name}\n\nThis may also remove related requirements, signoffs, and training records if your database is set to cascade.`
     );
@@ -991,7 +1000,7 @@ export default function App() {
     }
   }
 
-  async function toggleTrackActive(trackRow: AnyRow) {
+  async function toggleTrackActive(trackRow: Track) {
     if (editingTrackId === trackRow.id) return;
 
     const newActive = !trackRow.active;
@@ -1028,7 +1037,7 @@ export default function App() {
   }
 
   async function updateTrackColor(
-    trackRow: AnyRow,
+    trackRow: Track,
     nextHexOrEmpty: string | null,
     opts: { preview?: boolean } = {}
   ) {
@@ -1091,7 +1100,7 @@ export default function App() {
     recordsTrainingId,
   });
 
-  async function deleteRequirement(row: AnyRow) {
+  async function deleteRequirement(row: Requirement) {
     const trackName = trackById.get(row.trackId)?.name || row.trackId;
     const trainingName =
       trainingById.get(row.trainingId)?.name || row.trainingId;
@@ -1123,11 +1132,11 @@ export default function App() {
     }
   }
 
-  async function toggleRequirementRow(row: AnyRow) {
+  async function toggleRequirementRow(row: Requirement) {
     const nextActive = !row.active;
 
     setRequirements((prev) =>
-      prev.map((r: AnyRow) =>
+      prev.map((r: Requirement) =>
         r.id === row.id ? { ...r, active: nextActive } : r
       )
     );
@@ -1149,7 +1158,7 @@ export default function App() {
       alert("Failed to update requirement:\n" + getErrorMessage(e));
       setRequirementsError(getErrorMessage(e));
       setRequirements((prev) =>
-        prev.map((r: AnyRow) =>
+        prev.map((r: Requirement) =>
           r.id === row.id ? { ...r, active: row.active } : r
         )
       );
@@ -1204,7 +1213,7 @@ export default function App() {
     }
   }
 
-  async function updateSignoffStatus(signoffRow: AnyRow, newStatus: string) {
+  async function updateSignoffStatus(signoffRow: Signoff, newStatus: string) {
     setSignoffs((prev) =>
       prev.map((s) =>
         s.id === signoffRow.id ? { ...s, status: newStatus } : s
@@ -1289,15 +1298,21 @@ export default function App() {
 
   const markCompleteCrewName =
     markCompleteRow?.crewName ||
-    crewById.get(markCompleteRow?.crewId)?.name ||
+    (markCompleteRow?.crewId != null
+      ? crewById.get(markCompleteRow.crewId)?.name
+      : "") ||
     "";
   const markCompleteTrackName =
     markCompleteRow?.trackName ||
-    trackById.get(markCompleteRow?.trackId)?.name ||
+    (markCompleteRow?.trackId != null
+      ? trackById.get(markCompleteRow.trackId)?.name
+      : "") ||
     "";
   const markCompleteTrainingName =
     markCompleteRow?.trainingName ||
-    trainingById.get(markCompleteRow?.trainingId)?.name ||
+    (markCompleteRow?.trainingId != null
+      ? trainingById.get(markCompleteRow.trainingId)?.name
+      : "") ||
     "";
 
   const historyTitle = historyContext?.trainingName || "";

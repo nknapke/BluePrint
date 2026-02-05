@@ -1,4 +1,14 @@
 import { useState } from "react";
+import type {
+  Crew,
+  Location,
+  Requirement,
+  Signoff,
+  Track,
+  Training,
+  TrainingGroup,
+  TrainingRecord,
+} from "../types/domain";
 import {
   DEPARTMENTS,
   type Dept,
@@ -12,42 +22,42 @@ export function useAppState() {
   const [activeTab, setActiveTab] = useState<TabId>("crew");
 
   // Locations list (for the dropdown)
-  const [locations, setLocations] = useState<any[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [locationsLoading, setLocationsLoading] = useState(true);
   const [locationsError, setLocationsError] = useState("");
 
   // Crew
-  const [crew, setCrew] = useState<any[]>([]);
+  const [crew, setCrew] = useState<Crew[]>([]);
   const [crewLoading, setCrewLoading] = useState(true);
   const [crewError, setCrewError] = useState("");
 
   // Tracks
-  const [tracks, setTracks] = useState<any[]>([]);
+  const [tracks, setTracks] = useState<Track[]>([]);
   const [tracksLoading, setTracksLoading] = useState(true);
   const [tracksError, setTracksError] = useState("");
 
   // Trainings
-  const [trainings, setTrainings] = useState<any[]>([]);
+  const [trainings, setTrainings] = useState<Training[]>([]);
   const [trainingsLoading, setTrainingsLoading] = useState(true);
   const [trainingsError, setTrainingsError] = useState("");
 
   // Training Groups
-  const [trainingGroups, setTrainingGroups] = useState<any[]>([]);
+  const [trainingGroups, setTrainingGroups] = useState<TrainingGroup[]>([]);
   const [trainingGroupsLoading, setTrainingGroupsLoading] = useState(true);
   const [trainingGroupsError, setTrainingGroupsError] = useState("");
 
   // Requirements
-  const [requirements, setRequirements] = useState<any[]>([]);
+  const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [requirementsLoading, setRequirementsLoading] = useState(true);
   const [requirementsError, setRequirementsError] = useState("");
 
   // Signoffs
-  const [signoffs, setSignoffs] = useState<any[]>([]);
+  const [signoffs, setSignoffs] = useState<Signoff[]>([]);
   const [signoffsLoading, setSignoffsLoading] = useState(true);
   const [signoffsError, setSignoffsError] = useState("");
 
   // Training Records
-  const [trainingRecords, setTrainingRecords] = useState<any[]>([]);
+  const [trainingRecords, setTrainingRecords] = useState<TrainingRecord[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(true);
   const [recordsError, setRecordsError] = useState("");
 

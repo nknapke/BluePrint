@@ -1,6 +1,16 @@
 // src/hooks/useDataLoaders.ts
 import { useCallback, useMemo, useRef } from "react";
 import type { SetStateAction } from "react";
+import type {
+  Crew,
+  Location,
+  Requirement,
+  Signoff,
+  Track,
+  Training,
+  TrainingGroup,
+  TrainingRecord,
+} from "../types/domain";
 import { useLocation } from "../context/LocationContext";
 
 type SetState<T> = (value: SetStateAction<T>) => void;
@@ -66,12 +76,7 @@ type UseDataLoadersParams = {
   setRecordsError: SetState<string>;
 };
 
-type LocationRow = {
-  id: number;
-  code?: string;
-  name: string;
-  active?: boolean;
-};
+type LocationRow = Location;
 
 type CrewRow = {
   id: number;
@@ -149,75 +154,6 @@ type TrainingRecordRow = {
   location_id?: number | null;
 };
 
-type Crew = {
-  id: number;
-  name: string;
-  dept: string;
-  active: boolean;
-  statusRaw: string;
-};
-
-type Track = {
-  id: number;
-  localId: number | null;
-  name: string;
-  active: boolean;
-  color: string;
-};
-
-type TrainingGroup = {
-  id: number;
-  localId: number | null;
-  name: string;
-  active: boolean;
-  sortOrder: number | null | undefined;
-  color: string;
-  description: string;
-};
-
-type Training = {
-  id: number;
-  localId: number | null;
-  name: string;
-  active: boolean;
-  expiresAfterWeeks: number | null;
-  trainingGroupId: number | null;
-};
-
-type Requirement = {
-  id: number;
-  trackId: number;
-  trainingId: number;
-  active: boolean | null | undefined;
-};
-
-type Signoff = {
-  id: number;
-  crewId: number;
-  trackId: number;
-  status: string;
-  active: boolean | null | undefined;
-};
-
-type TrainingRecord = {
-  id: number;
-  locationId?: number | null;
-  crewId: number;
-  trackId: number;
-  trainingId: number;
-  active: boolean;
-  lastCompleted?: string | null;
-  status?: string | null;
-  dueDate?: string | null;
-  daysUntilDue?: number | null;
-  daysOverdue?: number | null;
-  crewName?: string | null;
-  homeDepartment?: string | null;
-  trackName?: string | null;
-  trainingName?: string | null;
-  lastSignedOffBy?: string | null;
-  lastSignedOffOn?: string | null;
-};
 
 function getErrorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
@@ -473,7 +409,7 @@ export function useDataLoaders({
           id: r.id,
           trackId: r.track_id,
           trainingId: r.training_id,
-          active: r.is_requirement_active,
+          active: r.is_requirement_active ?? null,
         }),
         setRows: setRequirements,
       });
@@ -494,7 +430,7 @@ export function useDataLoaders({
           crewId: s.crew_id,
           trackId: s.track_id,
           status: s.signoff_status,
-          active: s.is_signoff_active,
+          active: s.is_signoff_active ?? null,
         }),
         setRows: setSignoffs,
       });

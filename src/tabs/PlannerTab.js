@@ -21,12 +21,12 @@ function fmtDateISO(d) {
 export default function PlannerTab({
   S,
   activeLocationId,
-  locationId,
+  locationId = null,
   supabaseRpc,
   supabaseGet,
   supabasePost,
   supabasePatch,
-  trainingGroups = [],
+  trainingGroups = /** @type {import("../types/domain").TrainingGroup[]} */ ([]),
 }) {
   const locId = activeLocationId ?? locationId ?? null;
 
