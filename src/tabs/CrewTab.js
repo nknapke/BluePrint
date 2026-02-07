@@ -134,8 +134,8 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast }) {
       style={{
         display: "grid",
         gridTemplateColumns: "1fr auto",
-        gap: 12,
-        padding: "12px 12px",
+        gap: 10,
+        padding: "10px 12px",
         borderTop: isFirst ? "none" : "1px solid rgba(255,255,255,0.08)",
         borderRadius: isFirst ? "14px 14px 0 0" : isLast ? "0 0 14px 14px" : 0,
         background: "transparent",
@@ -421,8 +421,8 @@ export default function CrewTab({
     position: "sticky",
     top: 0,
     zIndex: 3,
-    padding: "12px 0 12px",
-    marginBottom: 14,
+    padding: "10px 0 10px",
+    marginBottom: 12,
     backdropFilter: "blur(14px)",
     background:
       "linear-gradient(180deg, rgba(16,18,26,0.92) 0%, rgba(16,18,26,0.72) 65%, rgba(16,18,26,0.00) 100%)",
@@ -431,23 +431,31 @@ export default function CrewTab({
   const commandBar = {
     display: "flex",
     alignItems: "center",
-    gap: 10,
+    justifyContent: "space-between",
+    gap: 12,
     flexWrap: "wrap",
-    padding: 12,
-    borderRadius: 18,
+    padding: "10px 12px",
+    borderRadius: 16,
     border: "1px solid rgba(255,255,255,0.10)",
     background: "rgba(0,0,0,0.22)",
     boxShadow: "0 16px 44px rgba(0,0,0,0.18)",
   };
 
+  const commandGroup = {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
+  };
+
   const filterPanel = {
     overflow: "hidden",
-    borderRadius: 18,
+    borderRadius: 16,
     border: "1px solid rgba(255,255,255,0.10)",
     background:
       "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(0,0,0,0.20) 100%)",
     boxShadow: "0 14px 40px rgba(0,0,0,0.16)",
-    maxHeight: filtersOpen ? 360 : 0,
+    maxHeight: filtersOpen ? 320 : 0,
     opacity: filtersOpen ? 1 : 0,
     transform: filtersOpen ? "translateY(0px)" : "translateY(-6px)",
     transition:
@@ -511,23 +519,25 @@ export default function CrewTab({
       <div style={S.cardBody}>
         <div style={stickyShell}>
           <div style={commandBar}>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search name, department"
-              style={{ ...S.input, width: 320, flex: "1 1 240px" }}
-            />
+            <div style={commandGroup}>
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search name, department"
+                style={{ ...S.input, width: 320, flex: "1 1 240px" }}
+              />
 
-            <button
-              type="button"
-              style={S.button(filtersOpen ? "primary" : "subtle")}
-              onClick={() => setFiltersOpen((p) => !p)}
-              title="Show filters"
-            >
-              Filters
-            </button>
+              <button
+                type="button"
+                style={S.button(filtersOpen ? "primary" : "subtle")}
+                onClick={() => setFiltersOpen((p) => !p)}
+                title="Show filters"
+              >
+                Filters
+              </button>
+            </div>
 
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={commandGroup}>
               <button style={S.button("subtle")} onClick={deptExpand.expandAll}>
                 Expand
               </button>
@@ -633,14 +643,14 @@ export default function CrewTab({
         {crewError && <p style={S.error}>{crewError}</p>}
 
         {!crewLoading && !crewError && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {groupedByDept.map((g) => {
               const open = deptExpand.expanded.has(g.key);
 
               return (
                 <div
                   key={g.key}
-                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                  style={{ display: "flex", flexDirection: "column", gap: 8 }}
                 >
                   <GroupHeaderIOS
                     title={g.title}
@@ -653,9 +663,9 @@ export default function CrewTab({
                   {open && (
                     <div
                       style={{
-                        marginLeft: 18,
-                        padding: 10,
-                        borderRadius: 16,
+                        marginLeft: 14,
+                        padding: 8,
+                        borderRadius: 14,
                         border: "1px solid rgba(255,255,255,0.10)",
                         background: "rgba(0,0,0,0.14)",
                         boxShadow: "0 14px 36px rgba(0,0,0,0.18)",
@@ -663,7 +673,7 @@ export default function CrewTab({
                     >
                       <div
                         style={{
-                          borderRadius: 14,
+                          borderRadius: 12,
                           overflow: "hidden",
                           border: "1px solid rgba(255,255,255,0.08)",
                           background: "rgba(0,0,0,0.18)",
