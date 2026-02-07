@@ -685,7 +685,9 @@ export default function RecordsTab({
       const t = trainingById.get(String(r.trainingId));
       if (!t) return "—";
       if (t.trainingGroupId == null) return "Ungrouped";
-      return trainingGroupById.get(String(t.trainingGroupId))?.name || "Ungrouped";
+      return (
+        trainingGroupById.get(String(t.trainingGroupId))?.name || "Ungrouped"
+      );
     },
     [trainingById, trainingGroupById]
   );
@@ -693,6 +695,7 @@ export default function RecordsTab({
   const [expandedByView, setExpandedByView] = useState(() => ({
     crew: new Set(),
     training: new Set(),
+    trainingGroup: new Set(),
     department: new Set(),
     list: new Set(),
   }));
@@ -819,6 +822,30 @@ export default function RecordsTab({
     [filtered]
   );
 
+  const groupedByTrainingGroup = useMemo(
+    () =>
+      buildHierarchy(
+        filtered,
+        [
+          {
+            keyOf: (r) => {
+              const t = trainingById.get(String(r.trainingId));
+              if (!t || t.trainingGroupId == null) return "Ungrouped";
+              return String(t.trainingGroupId);
+            },
+            titleOf: (r) => getTrainingGroupName(r),
+          },
+          {
+            keyOf: (r) =>
+              String(r.trainingId ?? r.trainingName ?? "Unknown Training"),
+            titleOf: (r) => r.trainingName || "Unknown Training",
+          },
+        ],
+        "crewName"
+      ),
+    [filtered, trainingById, getTrainingGroupName]
+  );
+
   const groupedByDepartment = useMemo(
     () =>
       buildHierarchy(
@@ -851,13 +878,23 @@ export default function RecordsTab({
   const groupsForView = useMemo(() => {
     if (viewMode === "list") return [];
     if (viewMode === "training") return groupedByTraining;
+    if (viewMode === "trainingGroup") return groupedByTrainingGroup;
     if (viewMode === "department") return groupedByDepartment;
     return groupedByCrew;
-  }, [viewMode, groupedByCrew, groupedByTraining, groupedByDepartment]);
+  }, [
+    viewMode,
+    groupedByCrew,
+    groupedByTraining,
+    groupedByTrainingGroup,
+    groupedByDepartment,
+  ]);
 
   const viewConfig = useMemo(() => {
     if (viewMode === "training") {
       return { titleMode: "trainingView", subtitleOfTop: () => "Tracks" };
+    }
+    if (viewMode === "trainingGroup") {
+      return { titleMode: "trainingView", subtitleOfTop: () => "Trainings" };
     }
     if (viewMode === "department") {
       return { titleMode: "crewView", subtitleOfTop: () => "Department" };
@@ -963,6 +1000,7 @@ export default function RecordsTab({
     setExpandedByView({
       crew: new Set(),
       training: new Set(),
+      trainingGroup: new Set(),
       department: new Set(),
       list: new Set(),
     });
@@ -1182,6 +1220,7 @@ export default function RecordsTab({
                 { value: "list", label: "List" },
                 { value: "crew", label: "By Crew" },
                 { value: "training", label: "By Training" },
+                { value: "trainingGroup", label: "By Training Group" },
                 { value: "department", label: "By Dept" },
               ]}
             />
