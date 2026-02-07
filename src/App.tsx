@@ -1620,6 +1620,7 @@ export default function App() {
               supabasePost={supabasePost}
               supabasePatch={supabasePatch}
               trainingGroups={trainingGroups}
+              tracks={tracks}
             />
           )}
         </div>

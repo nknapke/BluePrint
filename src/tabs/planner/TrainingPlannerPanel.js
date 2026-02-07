@@ -180,7 +180,7 @@ export default function TrainingPlannerPanel({
 
       try {
         const rows = await supabaseGet(
-          `/rest/v1/training_plan_day_attendees?select=id,crew_id,included,source&day_id=eq.${selectedDayId}`
+          `/rest/v1/v_plan_day_effective_attendees?select=attendee_id,crew_id,included,source&day_id=eq.${selectedDayId}`
         );
 
         const crewIds = rows.map((r) => r.crew_id).join(",");
@@ -197,7 +197,7 @@ export default function TrainingPlannerPanel({
 
         setAttendees(
           rows.map((r) => ({
-            rowId: r.id,
+            rowId: r.attendee_id,
             crewId: r.crew_id,
             name: crewMap.get(r.crew_id)?.crew_name || "",
             crewStatus: crewMap.get(r.crew_id)?.status || "",
@@ -505,6 +505,10 @@ export default function TrainingPlannerPanel({
               }}
             >
               {attendeesError}
+            </div>
+          ) : attendees.length === 0 ? (
+            <div style={{ marginTop: 12, ...S.helper }}>
+              No eligible crew for this day.
             </div>
           ) : (
             <div style={{ display: "grid", gap: 8, marginTop: 12 }}>

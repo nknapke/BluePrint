@@ -28,6 +28,7 @@ export default function PlannerTab({
   supabasePost,
   supabasePatch,
   trainingGroups = /** @type {import("../types/domain").TrainingGroup[]} */ ([]),
+  tracks = /** @type {import("../types/domain").Track[]} */ ([]),
 }) {
   const locId = activeLocationId ?? locationId ?? null;
 
@@ -45,7 +46,7 @@ export default function PlannerTab({
     locationId: locId,
     supabaseGet,
     supabasePost,
-    days: 7,
+    days: 14,
   });
 
   const weekLabel = useMemo(() => {
@@ -58,6 +59,13 @@ export default function PlannerTab({
     }
     return "";
   }, [roster?.startISO, roster?.endISO, roster?.dateList]);
+
+  const crewRangeLabel = useMemo(() => {
+    if (!weekLabel) return "";
+    const len = roster?.dateList?.length || 0;
+    if (len >= 14) return `2-week: ${weekLabel}`;
+    return `Week: ${weekLabel}`;
+  }, [weekLabel, roster?.dateList?.length]);
 
   /* Keep Day View synced to the current week start */
   useEffect(() => {
@@ -171,8 +179,8 @@ export default function PlannerTab({
               ]}
             />
 
-            {plannerView === "crew" && weekLabel && (
-              <span style={pill}>Week of {weekLabel}</span>
+            {plannerView === "crew" && crewRangeLabel && (
+              <span style={pill}>{crewRangeLabel}</span>
             )}
 
             {plannerView === "crew" && saveState ? (
@@ -258,8 +266,10 @@ export default function PlannerTab({
                 </button>
               </div>
 
-              {weekLabel ? (
-                <span style={{ ...pill, marginLeft: "auto" }}>{weekLabel}</span>
+              {crewRangeLabel ? (
+                <span style={{ ...pill, marginLeft: "auto" }}>
+                  {crewRangeLabel}
+                </span>
               ) : null}
             </div>
 
@@ -316,13 +326,19 @@ export default function PlannerTab({
 
           {/* View render */}
           {crewViewMode === "grid" ? (
-            <CrewSchedulesGrid S={S} roster={roster} search={crewSearch} />
+            <CrewSchedulesGrid
+              S={S}
+              roster={roster}
+              search={crewSearch}
+              tracks={tracks}
+            />
           ) : (
             <CrewSchedulesDayView
               S={S}
               roster={roster}
               dateISO={dayISO} // FIX: prevents "undefined" date saves
               search={crewSearch}
+              tracks={tracks}
             />
           )}
         </>

@@ -35,7 +35,7 @@ function prettyDept(s) {
 
 /** ---------- GRID ---------- */
 
-export default function CrewSchedulesGrid({ S, roster, search }) {
+export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
   const loading = !!(roster?.crewLoading || roster?.assignLoading);
   const err = roster?.crewError || roster?.assignError || "";
   const savePaused = !!roster?.savePaused;
@@ -50,10 +50,10 @@ export default function CrewSchedulesGrid({ S, roster, search }) {
   });
 
   const startISO = roster?.startISO || iso(new Date());
-  const days = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDays(startISO, i)),
-    [startISO]
-  );
+  const days = useMemo(() => {
+    if (roster?.dateList?.length) return roster.dateList;
+    return Array.from({ length: 7 }, (_, i) => addDays(startISO, i));
+  }, [roster?.dateList, startISO]);
 
   const todayISO = iso(new Date());
 
@@ -106,6 +106,27 @@ export default function CrewSchedulesGrid({ S, roster, search }) {
     [roster]
   );
 
+  const getTrackId = useCallback(
+    (d, id) =>
+      typeof roster?.getTrackId === "function" ? roster.getTrackId(d, id) : null,
+    [roster]
+  );
+
+  const setTrackFor = useCallback(
+    (d, id, value) =>
+      typeof roster?.setTrackFor === "function"
+        ? roster.setTrackFor(d, id, value)
+        : null,
+    [roster]
+  );
+
+  const trackOptions = useMemo(() => {
+    return (tracks || [])
+      .filter((t) => t && t.active !== false)
+      .slice()
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  }, [tracks]);
+
   /** ---------- paint logic ---------- */
 
   const paintCell = useCallback(
@@ -155,6 +176,16 @@ export default function CrewSchedulesGrid({ S, roster, search }) {
     marginTop: 12,
   };
 
+  const gridTemplateColumns = `260px repeat(${days.length}, minmax(72px, 1fr))`;
+  const minGridWidth = 260 + days.length * 86;
+  const gridWrap = { overflowX: "auto", paddingBottom: 6 };
+  const gridRow = {
+    display: "grid",
+    gridTemplateColumns,
+    gap: 8,
+    minWidth: minGridWidth,
+  };
+
   const cellBase = {
     height: 34,
     borderRadius: 10,
@@ -163,6 +194,23 @@ export default function CrewSchedulesGrid({ S, roster, search }) {
     transition:
       "transform 120ms ease, box-shadow 120ms ease, background 120ms ease",
     userSelect: "none",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 6px",
+  };
+
+  const trackSelect = {
+    ...S.select,
+    height: 26,
+    minWidth: 0,
+    width: "100%",
+    borderRadius: 999,
+    padding: "2px 26px 2px 10px",
+    fontSize: 12,
+    fontWeight: 700,
+    background: "rgba(10,15,25,0.55)",
+    border: "1px solid rgba(255,255,255,0.18)",
   };
 
   return (
@@ -191,49 +239,48 @@ export default function CrewSchedulesGrid({ S, roster, search }) {
         </div>
       )}
 
-      {/* Header */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "260px repeat(7, 1fr)",
-          gap: 8,
-          position: "sticky",
-          top: 0,
-          zIndex: 30,
-          paddingBottom: 6,
-          background: "rgba(12,14,20,0.8)",
-          backdropFilter: "blur(8px)",
-        }}
-      >
-        <div />
-        {days.map((d) => {
-          const isToday = d === todayISO;
-          return (
-            <div
-              key={d}
-              onMouseEnter={() => setHoverDate(d)}
-              onMouseLeave={() => setHoverDate(null)}
-              style={{
-                borderRadius: 14,
-                padding: "10px",
-                textAlign: "center",
-                background: isToday
-                  ? "linear-gradient(180deg, rgba(0,122,255,0.28) 0%, rgba(0,122,255,0.10) 100%)"
-                  : hoverDate === d
-                  ? "rgba(255,255,255,0.08)"
-                  : "rgba(255,255,255,0.03)",
-                border: isToday
-                  ? "1px solid rgba(0,122,255,0.45)"
-                  : "1px solid rgba(255,255,255,0.08)",
-                transition: "background 120ms ease, border 120ms ease",
-              }}
-            >
-              <div style={{ fontSize: 13, fontWeight: 900 }}>{fmtDow(d)}</div>
-              <div style={{ fontSize: 12, opacity: 0.6 }}>{fmtMD(d)}</div>
-            </div>
-          );
-        })}
-      </div>
+      <div style={gridWrap}>
+        {/* Header */}
+        <div
+          style={{
+            ...gridRow,
+            position: "sticky",
+            top: 0,
+            zIndex: 30,
+            paddingBottom: 6,
+            background: "rgba(12,14,20,0.8)",
+            backdropFilter: "blur(8px)",
+          }}
+        >
+          <div />
+          {days.map((d) => {
+            const isToday = d === todayISO;
+            return (
+              <div
+                key={d}
+                onMouseEnter={() => setHoverDate(d)}
+                onMouseLeave={() => setHoverDate(null)}
+                style={{
+                  borderRadius: 14,
+                  padding: "10px",
+                  textAlign: "center",
+                  background: isToday
+                    ? "linear-gradient(180deg, rgba(0,122,255,0.28) 0%, rgba(0,122,255,0.10) 100%)"
+                    : hoverDate === d
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(255,255,255,0.03)",
+                  border: isToday
+                    ? "1px solid rgba(0,122,255,0.45)"
+                    : "1px solid rgba(255,255,255,0.08)",
+                  transition: "background 120ms ease, border 120ms ease",
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 900 }}>{fmtDow(d)}</div>
+                <div style={{ fontSize: 12, opacity: 0.6 }}>{fmtMD(d)}</div>
+              </div>
+            );
+          })}
+        </div>
 
       {/* Body */}
       {grouped.length === 0 ? (
@@ -272,12 +319,7 @@ export default function CrewSchedulesGrid({ S, roster, search }) {
                   return (
                     <div
                       key={c.id}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "260px repeat(7, 1fr)",
-                        gap: 8,
-                        marginTop: 8,
-                      }}
+                      style={{ ...gridRow, marginTop: 8 }}
                     >
                       <div
                         onMouseEnter={() => setHoverCrewId(c.id)}
@@ -299,6 +341,7 @@ export default function CrewSchedulesGrid({ S, roster, search }) {
 
                       {days.map((d) => {
                         const working = isWorking(d, c.id);
+                        const trackId = getTrackId(d, c.id);
                         const hover = rowHover || hoverDate === d;
 
                         return (
@@ -326,7 +369,32 @@ export default function CrewSchedulesGrid({ S, roster, search }) {
                               transform: hover ? "translateY(-1px)" : "none",
                               opacity: savePaused ? 0.6 : 1,
                             }}
-                          />
+                          >
+                            {working ? (
+                              <select
+                                value={
+                                  trackId != null && Number.isFinite(trackId)
+                                    ? String(trackId)
+                                    : ""
+                                }
+                                onChange={(e) =>
+                                  setTrackFor(d, c.id, e.target.value)
+                                }
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseEnter={(e) => e.stopPropagation()}
+                                disabled={savePaused}
+                                style={trackSelect}
+                              >
+                                <option value="">No track</option>
+                                {trackOptions.map((t) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.name}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : null}
+                          </div>
                         );
                       })}
                     </div>
@@ -336,6 +404,7 @@ export default function CrewSchedulesGrid({ S, roster, search }) {
           );
         })
       )}
+      </div>
     </div>
   );
 }

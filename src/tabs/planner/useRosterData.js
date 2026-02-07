@@ -10,10 +10,26 @@ function iso(d) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function startOfWeekMonday(date) {
+  const d = new Date(date);
+  const day = d.getDay(); // 0 Sun ... 6 Sat
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
 function safeISODate(x) {
   const d = String(x || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return "";
   return d;
+}
+
+function normalizeTrackId(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n <= 0) return null;
+  return n;
 }
 
 function addDays(dateISO, n) {
@@ -34,20 +50,19 @@ export default function useRosterData({
   days = 7,
 }) {
   const location = locationId ?? locId ?? null;
+  const rangeDays = Math.max(1, Number(days) || 7);
 
   const [startISO, setStartISO] = useState(() => {
-    const today = new Date();
-    return iso(today);
+    return iso(startOfWeekMonday(new Date()));
   });
 
   const endISO = useMemo(
-    () => addDays(startISO, Number(days) - 1),
-    [startISO, days]
+    () => addDays(startISO, rangeDays - 1),
+    [startISO, rangeDays]
   );
   const dateList = useMemo(() => {
-    const n = Math.max(1, Number(days) || 7);
-    return Array.from({ length: n }, (_, i) => addDays(startISO, i));
-  }, [startISO, days]);
+    return Array.from({ length: rangeDays }, (_, i) => addDays(startISO, i));
+  }, [startISO, rangeDays]);
 
   // Crew
   const [crew, setCrew] = useState([]);
@@ -66,7 +81,7 @@ export default function useRosterData({
   const [saveError, setSaveError] = useState("");
 
   // Dirty buffer for debounced saving
-  const dirtyRef = useRef(new Map()); // key -> { location_id, work_date, crew_id, is_working }
+  const dirtyRef = useRef(new Map()); // key -> { location_id, work_date, crew_id, is_working, track_id }
   const saveTimerRef = useRef(null);
 
   const canRun =
@@ -113,7 +128,7 @@ export default function useRosterData({
       try {
         const path =
           "/rest/v1/work_roster_assignments" +
-          `?select=id,location_id,work_date,crew_id,is_working` +
+          `?select=id,location_id,work_date,crew_id,is_working,track_id` +
           `&location_id=eq.${Number(location)}` +
           `&work_date=gte.${rs}` +
           `&work_date=lte.${re}`;
@@ -127,7 +142,10 @@ export default function useRosterData({
           const d = safeISODate(r.work_date);
           const cid = Number(r.crew_id);
           if (!d || !Number.isFinite(cid)) continue;
-          next.set(keyOf(d, cid), !!r.is_working);
+          next.set(keyOf(d, cid), {
+            isWorking: !!r.is_working,
+            trackId: normalizeTrackId(r.track_id),
+          });
         }
         setAssignMap(next);
       } catch (e) {
@@ -150,16 +168,30 @@ export default function useRosterData({
     loadAssignmentsForRange(startISO, endISO);
   }, [canRun, loadAssignmentsForRange, startISO, endISO]);
 
-  const isWorking = useCallback(
+  const getAssignment = useCallback(
     (dateISO, crewId) => {
       const d = safeISODate(dateISO);
-      if (!d) return false;
+      if (!d) return { isWorking: false, trackId: null };
       const cid = Number(crewId);
-      if (!Number.isFinite(cid)) return false;
+      if (!Number.isFinite(cid)) return { isWorking: false, trackId: null };
       const k = keyOf(d, cid);
-      return !!assignMap.get(k);
+      const entry = assignMap.get(k);
+      return {
+        isWorking: !!entry?.isWorking,
+        trackId: normalizeTrackId(entry?.trackId),
+      };
     },
     [assignMap]
+  );
+
+  const isWorking = useCallback(
+    (dateISO, crewId) => getAssignment(dateISO, crewId).isWorking,
+    [getAssignment]
+  );
+
+  const getTrackId = useCallback(
+    (dateISO, crewId) => getAssignment(dateISO, crewId).trackId,
+    [getAssignment]
   );
 
   const flushSave = useCallback(async () => {
@@ -208,8 +240,8 @@ export default function useRosterData({
     await flushSave();
   }, [flushSave]);
 
-  const setWorkingFor = useCallback(
-    (dateISO, crewId, nextVal) => {
+  const setAssignmentFor = useCallback(
+    (dateISO, crewId, next) => {
       if (savePaused) return;
 
       const d = safeISODate(dateISO);
@@ -221,12 +253,16 @@ export default function useRosterData({
       const lid = Number(location);
       if (!Number.isFinite(lid)) return;
 
+      const nextIsWorking = !!next?.isWorking;
+      const nextTrackId = nextIsWorking
+        ? normalizeTrackId(next?.trackId)
+        : null;
+
       const k = keyOf(d, cid);
-      const v = !!nextVal;
 
       setAssignMap((prev) => {
         const m = new Map(prev);
-        m.set(k, v);
+        m.set(k, { isWorking: nextIsWorking, trackId: nextTrackId });
         return m;
       });
 
@@ -234,12 +270,37 @@ export default function useRosterData({
         location_id: lid,
         work_date: d,
         crew_id: cid,
-        is_working: v,
+        is_working: nextIsWorking,
+        track_id: nextTrackId,
       });
 
       scheduleSave();
     },
     [location, savePaused, scheduleSave]
+  );
+
+  const setWorkingFor = useCallback(
+    (dateISO, crewId, nextVal) => {
+      const current = getAssignment(dateISO, crewId);
+      const nextIsWorking = !!nextVal;
+      setAssignmentFor(dateISO, crewId, {
+        isWorking: nextIsWorking,
+        trackId: nextIsWorking ? current.trackId : null,
+      });
+    },
+    [getAssignment, setAssignmentFor]
+  );
+
+  const setTrackFor = useCallback(
+    (dateISO, crewId, nextTrackId) => {
+      const current = getAssignment(dateISO, crewId);
+      if (!current.isWorking) return;
+      setAssignmentFor(dateISO, crewId, {
+        isWorking: true,
+        trackId: nextTrackId,
+      });
+    },
+    [getAssignment, setAssignmentFor]
   );
 
   const toggleCell = useCallback(
@@ -276,19 +337,19 @@ export default function useRosterData({
     if (savePaused) return;
     if (!dateList || dateList.length === 0) return;
 
-    const prevStart = safeISODate(addDays(startISO, -7));
-    const prevEnd = safeISODate(addDays(endISO, -7));
+    const prevStart = safeISODate(addDays(startISO, -rangeDays));
+    const prevEnd = safeISODate(addDays(endISO, -rangeDays));
     if (!prevStart || !prevEnd) return;
 
     // Load previous week assignments (not into visible state)
     let prevRows = [];
     try {
-      const path =
-        "/rest/v1/work_roster_assignments" +
-        `?select=work_date,crew_id,is_working,location_id` +
-        `&location_id=eq.${Number(location)}` +
-        `&work_date=gte.${prevStart}` +
-        `&work_date=lte.${prevEnd}`;
+        const path =
+          "/rest/v1/work_roster_assignments" +
+          `?select=work_date,crew_id,is_working,track_id,location_id` +
+          `&location_id=eq.${Number(location)}` +
+          `&work_date=gte.${prevStart}` +
+          `&work_date=lte.${prevEnd}`;
 
       const rows = await supabaseGet(path, {
         cacheTag: `roster:assign:${location}:${prevStart}:${prevEnd}`,
@@ -303,7 +364,10 @@ export default function useRosterData({
       const d = safeISODate(r.work_date);
       const cid = Number(r.crew_id);
       if (!d || !Number.isFinite(cid)) continue;
-      prevMap.set(keyOf(d, cid), !!r.is_working);
+      prevMap.set(keyOf(d, cid), {
+        isWorking: !!r.is_working,
+        trackId: normalizeTrackId(r.track_id),
+      });
     }
 
     // Apply shift +7 into current week
@@ -311,10 +375,14 @@ export default function useRosterData({
       for (let i = 0; i < dateList.length; i++) {
         const curDay = safeISODate(dateList[i]);
         if (!curDay) continue;
-        const prevDay = safeISODate(addDays(curDay, -7));
+        const prevDay = safeISODate(addDays(curDay, -rangeDays));
         if (!prevDay) continue;
-        const v = !!prevMap.get(keyOf(prevDay, c.id));
-        setWorkingFor(curDay, c.id, v);
+        const prevEntry =
+          prevMap.get(keyOf(prevDay, c.id)) || {
+            isWorking: false,
+            trackId: null,
+          };
+        setAssignmentFor(curDay, c.id, prevEntry);
       }
     }
   }, [
@@ -322,8 +390,9 @@ export default function useRosterData({
     dateList,
     endISO,
     location,
+    rangeDays,
     savePaused,
-    setWorkingFor,
+    setAssignmentFor,
     startISO,
     supabaseGet,
   ]);
@@ -331,8 +400,8 @@ export default function useRosterData({
   const shiftWeek = useCallback((deltaWeeks) => {
     const dw = Number(deltaWeeks) || 0;
     if (!dw) return;
-    setStartISO((prev) => addDays(prev, dw * 7));
-  }, []);
+    setStartISO((prev) => addDays(prev, dw * rangeDays));
+  }, [rangeDays]);
 
   useEffect(() => {
     return () => {
@@ -355,10 +424,12 @@ export default function useRosterData({
     assignLoading,
     assignError,
     isWorking,
+    getTrackId,
 
     // actions
     toggleCell,
     setWorkingFor,
+    setTrackFor,
     clearDay,
     copyPreviousWeek,
     shiftWeek,

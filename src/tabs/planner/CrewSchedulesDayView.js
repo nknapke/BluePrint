@@ -16,8 +16,31 @@ function prettyDept(s) {
   return raw || "Unassigned";
 }
 
-export default function CrewSchedulesDayView({ S, roster, dateISO, search }) {
+export default function CrewSchedulesDayView({
+  S,
+  roster,
+  dateISO,
+  search,
+  tracks = [],
+}) {
   const savePaused = !!roster?.savePaused;
+  const trackOptions = useMemo(
+    () =>
+      (tracks || [])
+        .filter((t) => t && t.active !== false)
+        .slice()
+        .sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    [tracks]
+  );
+
+  const getTrackId =
+    typeof roster?.getTrackId === "function"
+      ? roster.getTrackId
+      : () => null;
+  const setTrackFor =
+    typeof roster?.setTrackFor === "function"
+      ? roster.setTrackFor
+      : () => null;
 
   const filteredCrew = useMemo(() => {
     const crew = roster?.crew ?? EMPTY_ARRAY;
@@ -71,6 +94,18 @@ export default function CrewSchedulesDayView({ S, roster, dateISO, search }) {
     ...S.card,
     padding: 16,
     borderRadius: 20,
+  };
+
+  const trackSelect = {
+    ...S.select,
+    height: 28,
+    minWidth: 180,
+    borderRadius: 999,
+    padding: "2px 28px 2px 12px",
+    fontSize: 12,
+    fontWeight: 700,
+    background: "rgba(10,15,25,0.55)",
+    border: "1px solid rgba(255,255,255,0.18)",
   };
 
   return (
@@ -133,11 +168,22 @@ export default function CrewSchedulesDayView({ S, roster, dateISO, search }) {
               <div style={{ display: "grid", gap: 8 }}>
                 {people.map((c) => {
                   const working = roster.isWorking(dateISO, c.id);
+                  const trackId = getTrackId(dateISO, c.id);
                   return (
-                    <button
+                    <div
                       key={c.id}
-                      onClick={() => toggleOne(c.id)}
-                      disabled={savePaused}
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        if (e.target.closest("select")) return;
+                        toggleOne(c.id);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          toggleOne(c.id);
+                        }
+                      }}
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
@@ -154,13 +200,45 @@ export default function CrewSchedulesDayView({ S, roster, dateISO, search }) {
                         fontWeight: 700,
                         transition:
                           "background 120ms ease, border 120ms ease",
+                        opacity: savePaused ? 0.6 : 1,
                       }}
                     >
                       <span>{c.crew_name}</span>
-                      <span style={{ fontSize: 12, opacity: 0.8 }}>
-                        {working ? "Working" : "Off"}
-                      </span>
-                    </button>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                        }}
+                      >
+                        <span style={{ fontSize: 12, opacity: 0.75 }}>
+                          {working ? "Working" : "Off"}
+                        </span>
+                        {working ? (
+                          <select
+                            value={
+                              trackId != null && Number.isFinite(trackId)
+                                ? String(trackId)
+                                : ""
+                            }
+                            onChange={(e) =>
+                              setTrackFor(dateISO, c.id, e.target.value)
+                            }
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
+                            disabled={savePaused}
+                            style={trackSelect}
+                          >
+                            <option value="">No track</option>
+                            {trackOptions.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+                      </div>
+                    </div>
                   );
                 })}
               </div>
