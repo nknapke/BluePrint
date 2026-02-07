@@ -15,6 +15,14 @@ function prettyDate(iso) {
   });
 }
 
+function todayLocalISO() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function clampText(s, n = 180) {
   const t = String(s || "").trim();
   if (!t) return "";
@@ -62,8 +70,7 @@ export default function TrainingPlannerPanel({
 }) {
   /* ---------- generate ---------- */
   const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    return d.toISOString().slice(0, 10);
+    return todayLocalISO();
   });
 
   const [isGenerating, setIsGenerating] = useState(false);
@@ -121,7 +128,7 @@ export default function TrainingPlannerPanel({
 
   /* ---------------- data loading ---------------- */
 
-  async function generatePlan() {
+  async function generatePlan(nextStartDate) {
     if (!locId) return;
 
     setIsGenerating(true);
@@ -131,13 +138,16 @@ export default function TrainingPlannerPanel({
     setSelectedDayId(null);
 
     try {
+      const effectiveStart = nextStartDate || startDate;
+      if (nextStartDate) setStartDate(nextStartDate);
+
       await supabaseRpc("generate_training_plan_v2", {
         p_location_id: Number(locId),
-        p_start_date: startDate,
+        p_start_date: effectiveStart,
       });
 
       const rows = await supabaseGet(
-        `/rest/v1/training_plans?select=id&location_id=eq.${locId}&start_date=eq.${startDate}&order=created_at.desc&limit=1`
+        `/rest/v1/training_plans?select=id&location_id=eq.${locId}&start_date=eq.${effectiveStart}&order=created_at.desc&limit=1`
       );
 
       if (rows?.[0]?.id) setPlanId(rows[0].id);
@@ -322,13 +332,23 @@ export default function TrainingPlannerPanel({
             </div>
           </div>
 
-          <button
-            style={S.button("primary", isGenerating || !locId)}
-            onClick={generatePlan}
-            disabled={isGenerating || !locId}
-          >
-            {isGenerating ? "Generating…" : "Generate 14-day plan"}
-          </button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              style={S.button("primary", isGenerating || !locId)}
+              onClick={() => generatePlan()}
+              disabled={isGenerating || !locId}
+            >
+              {isGenerating ? "Generating…" : "Generate 14-day plan"}
+            </button>
+            <button
+              style={S.button("subtle", isGenerating || !locId)}
+              onClick={() => generatePlan(todayLocalISO())}
+              disabled={isGenerating || !locId}
+              title="Use today's date as the plan start"
+            >
+              Generate from today
+            </button>
+          </div>
         </div>
 
         <div style={{ marginTop: 12, display: "flex", gap: 12 }}>

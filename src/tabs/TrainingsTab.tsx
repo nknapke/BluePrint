@@ -682,7 +682,6 @@ type GroupedBlock = {
   counts: GroupCounts;
 };
 
-type GroupView = "group" | "status";
 
 export default function TrainingsTab({
   S,
@@ -735,7 +734,6 @@ export default function TrainingsTab({
   deleteRequirement,
 }: TrainingsTabProps) {
   const [trainQ, setTrainQ] = useState("");
-  const [groupView, setGroupView] = useState<GroupView>("group");
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [addingGroup, setAddingGroup] = useState(false);
@@ -793,98 +791,60 @@ export default function TrainingsTab({
   }, [trainings, trainQ, groupById]);
 
   const grouped = useMemo<GroupedBlock[]>(() => {
-    if (groupView === "group") {
-      const map = new Map<string, GroupedBlock>();
-
-      for (const t of baseList) {
-        const key =
-          t.trainingGroupId == null
-            ? UNGROUPED_KEY
-            : String(t.trainingGroupId);
-
-        const group =
-          t.trainingGroupId == null
-            ? null
-            : groupById.get(String(t.trainingGroupId)) || null;
-
-        const title = group?.name || "Ungrouped";
-
-        if (!map.has(key)) {
-          map.set(key, {
-            key,
-            title,
-            subtitle: "",
-            sortOrder: group?.sortOrder ?? 9999,
-            items: [],
-            counts: { active: 0, inactive: 0 },
-          });
-        }
-
-        const g = map.get(key);
-        if (!g) continue;
-        g.items.push(t);
-        if (t.active) g.counts.active += 1;
-        else g.counts.inactive += 1;
-      }
-
-      const out = Array.from(map.values());
-
-      out.sort((a, b) => {
-        if (a.key === UNGROUPED_KEY && b.key !== UNGROUPED_KEY) return 1;
-        if (b.key === UNGROUPED_KEY && a.key !== UNGROUPED_KEY) return -1;
-
-        const so = Number(a.sortOrder ?? 9999) - Number(b.sortOrder ?? 9999);
-        if (so !== 0) return so;
-        return String(a.title).localeCompare(String(b.title));
-      });
-
-      for (const g of out) {
-        g.items.sort((a, b) => {
-          if (a.active !== b.active) return a.active ? -1 : 1;
-          const n = String(a.name || "").localeCompare(String(b.name || ""));
-          if (n !== 0) return n;
-          return Number(a.id) - Number(b.id);
-        });
-        g.subtitle = `${g.items.length} trainings`;
-      }
-
-      return out;
-    }
-
-    const activeItems: Training[] = [];
-    const inactiveItems: Training[] = [];
+    const map = new Map<string, GroupedBlock>();
 
     for (const t of baseList) {
-      if (t.active) activeItems.push(t);
-      else inactiveItems.push(t);
+      const key =
+        t.trainingGroupId == null ? UNGROUPED_KEY : String(t.trainingGroupId);
+
+      const group =
+        t.trainingGroupId == null
+          ? null
+          : groupById.get(String(t.trainingGroupId)) || null;
+
+      const title = group?.name || "Ungrouped";
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          title,
+          subtitle: "",
+          sortOrder: group?.sortOrder ?? 9999,
+          items: [],
+          counts: { active: 0, inactive: 0 },
+        });
+      }
+
+      const g = map.get(key);
+      if (!g) continue;
+      g.items.push(t);
+      if (t.active) g.counts.active += 1;
+      else g.counts.inactive += 1;
     }
 
-    const sortByNameThenId = (a: Training, b: Training) => {
-      const an = String(a.name || "").localeCompare(String(b.name || ""));
-      if (an !== 0) return an;
-      return Number(a.id) - Number(b.id);
-    };
+    const out = Array.from(map.values());
 
-    activeItems.sort(sortByNameThenId);
-    inactiveItems.sort(sortByNameThenId);
+    out.sort((a, b) => {
+      if (a.key === UNGROUPED_KEY && b.key !== UNGROUPED_KEY) return 1;
+      if (b.key === UNGROUPED_KEY && a.key !== UNGROUPED_KEY) return -1;
 
-    return [
-      {
-        key: "Active",
-        title: "Active",
-        subtitle: `${activeItems.length} trainings`,
-        items: activeItems,
-        counts: { active: activeItems.length, inactive: 0 },
-      },
-      {
-        key: "Inactive",
-        title: "Inactive",
-        subtitle: `${inactiveItems.length} trainings`,
-        items: inactiveItems,
-        counts: { active: 0, inactive: inactiveItems.length },
-      },
-    ];
-  }, [baseList, groupView, groupById]);
+      const so = Number(a.sortOrder ?? 9999) - Number(b.sortOrder ?? 9999);
+      if (so !== 0) return so;
+      return String(a.title).localeCompare(String(b.title));
+    });
+
+    for (const g of out) {
+      g.items.sort((a, b) => {
+        if (a.active !== b.active) return a.active ? -1 : 1;
+        const n = String(a.name || "").localeCompare(String(b.name || ""));
+        if (n !== 0) return n;
+        return Number(a.id) - Number(b.id);
+      });
+      g.subtitle = `${g.items.length} trainings`;
+    }
+
+    return out;
+  }, [baseList, groupById]);
 
   const groupKeys = useMemo(() => grouped.map((g) => g.key), [grouped]);
   const expand = useExpandableKeys(groupKeys, { defaultExpanded: true });
@@ -934,10 +894,6 @@ export default function TrainingsTab({
       setReqNewTrainingId("ALL");
     }
   }, [requirementsViewMode, selectedTraining, setReqNewTrainingId]);
-
-  const handleGroupViewChange = (value: string) => {
-    setGroupView(value === "status" ? "status" : "group");
-  };
 
   const handleCreateGroup = useCallback(async () => {
     const name = (newGroupName || "").trim();
@@ -1310,15 +1266,6 @@ export default function TrainingsTab({
                 style={{ ...S.input, minWidth: 220, flex: "1 1 220px" }}
               />
 
-              <Segmented
-                value={groupView}
-                onChange={handleGroupViewChange}
-                options={[
-                  { value: "group", label: "By Group" },
-                  { value: "status", label: "By Status" },
-                ]}
-              />
-
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={S.button("subtle")} onClick={expand.expandAll}>
                   Expand
@@ -1431,7 +1378,7 @@ export default function TrainingsTab({
             <div style={S.row}>
               <Segmented
                 value={requirementsViewMode}
-                onChange={(v) => setRequirementsViewMode(v as ReqViewMode)}
+                onChange={(v: string) => setRequirementsViewMode(v as ReqViewMode)}
                 options={[
                   { value: "training", label: "By Training" },
                   { value: "track", label: "By Track" },
