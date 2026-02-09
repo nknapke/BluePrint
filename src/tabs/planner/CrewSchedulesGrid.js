@@ -42,6 +42,8 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
 
   const [hoverCrewId, setHoverCrewId] = useState(null);
   const [hoverDate, setHoverDate] = useState(null);
+  const headerRowRef = useRef(null);
+  const bodyScrollRef = useRef(null);
 
   /** ---------- drag paint state ---------- */
   const dragRef = useRef({
@@ -186,10 +188,22 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
   const dayColMin = 120;
   const gridTemplateColumns = `260px repeat(${days.length}, minmax(${dayColMin}px, 1fr))`;
   const minGridWidth = 260 + days.length * (dayColMin + 14);
-  const gridWrap = {
+  const stickyOffset = 105;
+  const headerWrap = {
+    position: "sticky",
+    top: stickyOffset,
+    zIndex: 4,
+    paddingBottom: 6,
+    background: "rgba(12,14,20,0.8)",
+    backdropFilter: "blur(8px)",
+  };
+  const headerOuter = {
+    overflowX: "hidden",
+  };
+  const bodyScroll = {
     overflowX: "auto",
     paddingBottom: 6,
-    overflowY: "hidden",
+    overflowY: "visible",
     WebkitOverflowScrolling: "touch",
   };
   const gridRow = {
@@ -198,6 +212,17 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
     gap: 8,
     minWidth: minGridWidth,
   };
+
+  const syncHeaderScroll = useCallback(() => {
+    const body = bodyScrollRef.current;
+    const header = headerRowRef.current;
+    if (!body || !header) return;
+    header.style.transform = `translateX(-${body.scrollLeft || 0}px)`;
+  }, []);
+
+  useEffect(() => {
+    syncHeaderScroll();
+  }, [syncHeaderScroll, days.length]);
 
   const cellBase = {
     height: 34,
@@ -228,22 +253,19 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
 
   return (
     <div style={panel}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          marginBottom: 12,
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={S.helper}>Click and drag to paint crew schedules.</div>
-        {savePaused ? (
-          <div style={{ ...S.badge("warn"), marginLeft: "auto" }}>
-            Editing paused
-          </div>
-        ) : null}
-      </div>
+      {savePaused ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            marginBottom: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ ...S.badge("warn") }}>Editing paused</div>
+        </div>
+      ) : null}
 
       {loading && <div style={S.helper}>Loading crew schedules…</div>}
       {err && (
@@ -252,176 +274,173 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
         </div>
       )}
 
-      <div style={gridWrap}>
-        {/* Header */}
-        <div
-          style={{
-            ...gridRow,
-            position: "sticky",
-            top: 0,
-            zIndex: 30,
-            paddingBottom: 6,
-            background: "rgba(12,14,20,0.8)",
-            backdropFilter: "blur(8px)",
-          }}
-        >
-          <div />
-          {days.map((d) => {
-            const isToday = d === todayISO;
-            return (
-              <div
-                key={d}
-                onMouseEnter={() => setHoverDate(d)}
-                onMouseLeave={() => setHoverDate(null)}
-                style={{
-                  borderRadius: 14,
-                  padding: "10px",
-                  textAlign: "center",
-                  background: isToday
-                    ? "linear-gradient(180deg, rgba(0,122,255,0.28) 0%, rgba(0,122,255,0.10) 100%)"
-                    : hoverDate === d
-                    ? "rgba(255,255,255,0.08)"
-                    : "rgba(255,255,255,0.03)",
-                  border: isToday
-                    ? "1px solid rgba(0,122,255,0.45)"
-                    : "1px solid rgba(255,255,255,0.08)",
-                  transition: "background 120ms ease, border 120ms ease",
-                }}
-              >
-                <div style={{ fontSize: 13, fontWeight: 900 }}>{fmtDow(d)}</div>
-                <div style={{ fontSize: 12, opacity: 0.6 }}>{fmtMD(d)}</div>
-              </div>
-            );
-          })}
+      {/* Sticky Header (synced to body scroll) */}
+      <div style={headerWrap}>
+        <div style={headerOuter}>
+          <div ref={headerRowRef} style={gridRow}>
+            <div />
+            {days.map((d) => {
+              const isToday = d === todayISO;
+              return (
+                <div
+                  key={d}
+                  onMouseEnter={() => setHoverDate(d)}
+                  onMouseLeave={() => setHoverDate(null)}
+                  style={{
+                    borderRadius: 14,
+                    padding: "10px",
+                    textAlign: "center",
+                    background: isToday
+                      ? "linear-gradient(180deg, rgba(0,122,255,0.28) 0%, rgba(0,122,255,0.10) 100%)"
+                      : hoverDate === d
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(255,255,255,0.03)",
+                    border: isToday
+                      ? "1px solid rgba(0,122,255,0.45)"
+                      : "1px solid rgba(255,255,255,0.08)",
+                    transition: "background 120ms ease, border 120ms ease",
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 900 }}>
+                    {fmtDow(d)}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.6 }}>{fmtMD(d)}</div>
+                </div>
+              );
+            })}
+          </div>
         </div>
+      </div>
 
       {/* Body */}
-      {grouped.length === 0 ? (
-        <div style={{ padding: 16, opacity: 0.7 }}>No crew found.</div>
-      ) : (
-        grouped.map(({ dept, people }) => {
-          const open = expanded.has(dept);
-          return (
-            <div key={dept} style={{ marginTop: 10 }}>
-              <button
-                onClick={() => toggleDept(dept)}
-                style={{
-                  width: "100%",
-                  borderRadius: 14,
-                  padding: "10px 12px",
-                  border: "1px solid rgba(255,255,255,0.10)",
-                  background: "rgba(255,255,255,0.04)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  cursor: "pointer",
-                  fontWeight: 800,
-                  color: "rgba(255,255,255,0.88)",
-                }}
-              >
-                <span style={{ opacity: 0.7 }}>{open ? "v" : ">"}</span>
-                {dept}
-                <span style={{ marginLeft: "auto", opacity: 0.6 }}>
-                  {people.length}
-                </span>
-              </button>
+      <div
+        ref={bodyScrollRef}
+        style={bodyScroll}
+        onScroll={syncHeaderScroll}
+      >
+        {grouped.length === 0 ? (
+          <div style={{ padding: 16, opacity: 0.7 }}>No crew found.</div>
+        ) : (
+          grouped.map(({ dept, people }) => {
+            const open = expanded.has(dept);
+            return (
+              <div key={dept} style={{ marginTop: 10 }}>
+                <button
+                  onClick={() => toggleDept(dept)}
+                  style={{
+                    width: "100%",
+                    borderRadius: 14,
+                    padding: "10px 12px",
+                    border: "1px solid rgba(255,255,255,0.10)",
+                    background: "rgba(255,255,255,0.04)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    cursor: "pointer",
+                    fontWeight: 800,
+                    color: "rgba(255,255,255,0.88)",
+                  }}
+                >
+                  <span style={{ opacity: 0.7 }}>{open ? "v" : ">"}</span>
+                  {dept}
+                  <span style={{ marginLeft: "auto", opacity: 0.6 }}>
+                    {people.length}
+                  </span>
+                </button>
 
-              {open &&
-                people.map((c) => {
-                  const rowHover = hoverCrewId === c.id;
-                  return (
-                    <div
-                      key={c.id}
-                      style={{ ...gridRow, marginTop: 8 }}
-                    >
-                      <div
-                        onMouseEnter={() => setHoverCrewId(c.id)}
-                        onMouseLeave={() => setHoverCrewId(null)}
-                        style={{
-                          borderRadius: 12,
-                          padding: "10px 12px",
-                          background: rowHover
-                            ? "rgba(255,255,255,0.10)"
-                            : "rgba(255,255,255,0.03)",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                        }}
-                      >
-                        <div style={{ fontWeight: 900 }}>{c.crew_name}</div>
-                        <div style={{ fontSize: 12, opacity: 0.6 }}>
-                          {prettyDept(c.home_department)}
-                        </div>
-                      </div>
-
-                      {days.map((d) => {
-                        const working = isWorking(d, c.id);
-                        const trackId = getTrackId(d, c.id);
-                        const trackLabel =
-                          trackId != null && Number.isFinite(trackId)
-                            ? trackNameById.get(Number(trackId)) || ""
-                            : "";
-                        const hover = rowHover || hoverDate === d;
-
-                        return (
-                          <div
-                            key={`${c.id}-${d}`}
-                            onMouseDown={() => beginDrag(d, c.id)}
-                            onMouseEnter={() => {
-                              setHoverCrewId(c.id);
-                              setHoverDate(d);
-                              dragOver(d, c.id);
-                            }}
-                            style={{
-                              ...cellBase,
-                              background: working
-                                ? "linear-gradient(180deg, rgba(90,150,255,0.32) 0%, rgba(90,150,255,0.16) 100%)"
-                                : hover
-                                ? "rgba(255,255,255,0.05)"
-                                : "rgba(255,255,255,0.02)",
-                              border: working
-                                ? "1px solid rgba(90,150,255,0.40)"
-                                : "1px solid rgba(255,255,255,0.08)",
-                              boxShadow: hover
-                                ? "0 6px 16px rgba(0,0,0,0.25)"
-                                : "none",
-                              transform: hover ? "translateY(-1px)" : "none",
-                              opacity: savePaused ? 0.6 : 1,
-                            }}
-                          >
-                            {working ? (
-                              <select
-                                value={
-                                  trackId != null && Number.isFinite(trackId)
-                                    ? String(trackId)
-                                    : ""
-                                }
-                                onChange={(e) =>
-                                  setTrackFor(d, c.id, e.target.value)
-                                }
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onClick={(e) => e.stopPropagation()}
-                                onMouseEnter={(e) => e.stopPropagation()}
-                                disabled={savePaused}
-                                title={trackLabel || "No track"}
-                                style={trackSelect}
-                              >
-                                <option value="">No track</option>
-                                {trackOptions.map((t) => (
-                                  <option key={t.id} value={t.id}>
-                                    {t.name}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : null}
+                {open &&
+                  people.map((c) => {
+                    const rowHover = hoverCrewId === c.id;
+                    return (
+                      <div key={c.id} style={{ ...gridRow, marginTop: 8 }}>
+                        <div
+                          onMouseEnter={() => setHoverCrewId(c.id)}
+                          onMouseLeave={() => setHoverCrewId(null)}
+                          style={{
+                            borderRadius: 12,
+                            padding: "10px 12px",
+                            background: rowHover
+                              ? "rgba(255,255,255,0.10)"
+                              : "rgba(255,255,255,0.03)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                          }}
+                        >
+                          <div style={{ fontWeight: 900 }}>{c.crew_name}</div>
+                          <div style={{ fontSize: 12, opacity: 0.6 }}>
+                            {prettyDept(c.home_department)}
                           </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-            </div>
-          );
-        })
-      )}
+                        </div>
+
+                        {days.map((d) => {
+                          const working = isWorking(d, c.id);
+                          const trackId = getTrackId(d, c.id);
+                          const trackLabel =
+                            trackId != null && Number.isFinite(trackId)
+                              ? trackNameById.get(Number(trackId)) || ""
+                              : "";
+                          const hover = rowHover || hoverDate === d;
+
+                          return (
+                            <div
+                              key={`${c.id}-${d}`}
+                              onMouseDown={() => beginDrag(d, c.id)}
+                              onMouseEnter={() => {
+                                setHoverCrewId(c.id);
+                                setHoverDate(d);
+                                dragOver(d, c.id);
+                              }}
+                              style={{
+                                ...cellBase,
+                                background: working
+                                  ? "linear-gradient(180deg, rgba(90,150,255,0.32) 0%, rgba(90,150,255,0.16) 100%)"
+                                  : hover
+                                  ? "rgba(255,255,255,0.05)"
+                                  : "rgba(255,255,255,0.02)",
+                                border: working
+                                  ? "1px solid rgba(90,150,255,0.40)"
+                                  : "1px solid rgba(255,255,255,0.08)",
+                                boxShadow: hover
+                                  ? "0 6px 16px rgba(0,0,0,0.25)"
+                                  : "none",
+                                transform: hover ? "translateY(-1px)" : "none",
+                                opacity: savePaused ? 0.6 : 1,
+                              }}
+                            >
+                              {working ? (
+                                <select
+                                  value={
+                                    trackId != null && Number.isFinite(trackId)
+                                      ? String(trackId)
+                                      : ""
+                                  }
+                                  onChange={(e) =>
+                                    setTrackFor(d, c.id, e.target.value)
+                                  }
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseEnter={(e) => e.stopPropagation()}
+                                  disabled={savePaused}
+                                  title={trackLabel || "No track"}
+                                  style={trackSelect}
+                                >
+                                  <option value="">No track</option>
+                                  {trackOptions.map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                      {t.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );

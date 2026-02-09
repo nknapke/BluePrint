@@ -266,6 +266,22 @@ export default function PlannerTab({
                 </button>
               </div>
 
+              <div
+                style={{
+                  flex: "1 1 320px",
+                  display: "flex",
+                  justifyContent: "center",
+                }}
+              >
+                <input
+                  value={crewSearch || ""}
+                  onChange={(e) => setCrewSearch(e.target.value)}
+                  placeholder="Search crew or department"
+                  style={{ ...inputStyle, width: "100%" }}
+                  disabled={roster?.savePaused}
+                />
+              </div>
+
               {crewRangeLabel ? (
                 <span style={{ ...pill, marginLeft: "auto" }}>
                   {crewRangeLabel}
@@ -273,16 +289,8 @@ export default function PlannerTab({
               ) : null}
             </div>
 
-            <div style={{ ...controlRow, marginTop: 10 }}>
-              <input
-                value={crewSearch || ""}
-                onChange={(e) => setCrewSearch(e.target.value)}
-                placeholder="Search crew or department"
-                style={inputStyle}
-                disabled={roster?.savePaused}
-              />
-
-              {crewViewMode === "day" ? (
+            {crewViewMode === "day" ? (
+              <div style={{ ...controlRow, marginTop: 10 }}>
                 <div
                   style={{
                     display: "inline-flex",
@@ -320,8 +328,8 @@ export default function PlannerTab({
                     ▶
                   </button>
                 </div>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
 
           {/* View render */}
