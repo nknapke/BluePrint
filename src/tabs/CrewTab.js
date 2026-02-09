@@ -96,7 +96,7 @@ function GroupHeaderIOS({ title, subtitle, open, onToggle, counts }) {
   );
 }
 
-function CrewRowCard({ S, c, edit, actions, isFirst, isLast }) {
+function CrewRowCard({ S, c, edit, actions, isFirst, isLast, deptOptions }) {
   const isEditing = edit.editingCrewId === c.id;
 
   const hoverOn = (e) => {
@@ -189,12 +189,18 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast }) {
         >
           {isEditing ? (
             <>
-              <input
-                value={edit.editCrewDept}
+              <select
+                value={edit.editCrewDept || ""}
                 onChange={(e) => edit.setEditCrewDept(e.target.value)}
-                style={{ ...S.input, width: 260, maxWidth: "100%" }}
-                placeholder="Department"
-              />
+                style={{ ...S.select, width: 260, maxWidth: "100%" }}
+              >
+                <option value="">No Department</option>
+                {deptOptions.map((d) => (
+                  <option key={d} value={d}>
+                    {prettyTitle(d)}
+                  </option>
+                ))}
+              </select>
 
               <select
                 value={edit.editCrewStatus}
@@ -317,6 +323,7 @@ export default function CrewTab({
   const [deptInput, setDeptInput] = useState("");
   const [deptError, setDeptError] = useState("");
   const [deptSaving, setDeptSaving] = useState(false);
+  const [editingDeptIdx, setEditingDeptIdx] = useState(null);
 
   const baseList = useMemo(() => {
     const list = Array.isArray(visibleCrew) ? visibleCrew : [];
@@ -370,7 +377,7 @@ export default function CrewTab({
     };
 
     (crewDepartments || []).forEach(add);
-    (departments || []).forEach(add);
+    (departments || []).forEach((d) => add(d?.name));
     if (crewDeptFilter !== "ALL") add(crewDeptFilter);
 
     return Array.from(map.values()).sort((a, b) =>
@@ -444,61 +451,86 @@ export default function CrewTab({
   }, [setCrewNameFilter, setCrewDeptFilter, setCrewStatusFilter, deptExpand]);
 
   const openManageDepartments = useCallback(() => {
-    setDeptDraft(Array.isArray(departments) ? departments.slice() : []);
+    setDeptDraft(
+      Array.isArray(departments)
+        ? departments.map((d) => ({
+            id: d?.id ?? null,
+            name: d?.name || "",
+            originalName: d?.name || "",
+          }))
+        : []
+    );
     setDeptInput("");
     setDeptError("");
+    setEditingDeptIdx(null);
     setManageOpen(true);
   }, [departments]);
 
   const closeManageDepartments = useCallback(() => {
     setManageOpen(false);
     setDeptError("");
+    setEditingDeptIdx(null);
   }, []);
 
   const updateDepartment = useCallback((idx, value) => {
     setDeptDraft((prev) => {
       const next = prev.slice();
-      next[idx] = value;
+      next[idx] = { ...next[idx], name: value };
       return next;
     });
   }, []);
 
   const removeDepartment = useCallback((idx) => {
     setDeptDraft((prev) => prev.filter((_, i) => i !== idx));
+    setEditingDeptIdx((prev) => {
+      if (prev == null) return prev;
+      if (prev === idx) return null;
+      if (prev > idx) return prev - 1;
+      return prev;
+    });
   }, []);
 
   const addDepartment = useCallback(() => {
     const name = String(deptInput || "").trim();
     if (!name) return;
     const exists = deptDraft.some(
-      (d) => String(d || "").trim().toLowerCase() === name.toLowerCase()
+      (d) => String(d?.name || "").trim().toLowerCase() === name.toLowerCase()
     );
     if (exists) {
       setDeptError("That department already exists.");
       return;
     }
-    setDeptDraft((prev) => [...prev, name]);
+    setDeptDraft((prev) => [
+      ...prev,
+      { id: null, name, originalName: "" },
+    ]);
     setDeptInput("");
     setDeptError("");
   }, [deptInput, deptDraft]);
 
   const buildDepartmentList = useCallback(() => {
     const cleaned = deptDraft
-      .map((d) => String(d || "").trim())
-      .filter(Boolean);
+      .map((d) => ({
+        ...d,
+        name: String(d?.name || "").trim(),
+      }))
+      .filter((d) => d.name);
 
     const seen = new Set();
     const unique = [];
-    for (const name of cleaned) {
-      const key = name.toLowerCase();
-      if (seen.has(key)) continue;
+    for (const row of cleaned) {
+      const key = row.name.toLowerCase();
+      if (seen.has(key)) {
+        setDeptError("Duplicate department names found.");
+        return null;
+      }
       seen.add(key);
-      unique.push(name);
+      unique.push(row);
     }
 
     if (!unique.length) {
       setDeptError("Please keep at least one department.");
-      return;
+      return null;
     }
 
     return unique;
@@ -506,7 +538,7 @@ export default function CrewTab({
 
   const handleSaveDepartments = useCallback(async () => {
     const unique = buildDepartmentList();
-    if (!unique.length) {
+    if (!unique || !unique.length) {
       setDeptError("Please keep at least one department.");
       return;
     }
@@ -791,15 +823,16 @@ export default function CrewTab({
                         }}
                       >
                         {g.items.map((c, idx) => (
-                          <CrewRowCard
-                            key={c.id}
-                            S={S}
-                            c={c}
-                            edit={edit}
-                            actions={actions}
-                            isFirst={idx === 0}
-                            isLast={idx === g.items.length - 1}
-                          />
+                            <CrewRowCard
+                              key={c.id}
+                              S={S}
+                              c={c}
+                              edit={edit}
+                              actions={actions}
+                              deptOptions={deptOptions}
+                              isFirst={idx === 0}
+                              isLast={idx === g.items.length - 1}
+                            />
                         ))}
                       </div>
                     </div>
@@ -832,8 +865,8 @@ export default function CrewTab({
             <div style={S.modalBody}>
               <div style={{ display: "grid", gap: 12 }}>
                 <div style={{ ...S.helper, margin: 0 }}>
-                  Changes update the department dropdowns. Existing crew keep
-                  their current department.
+                  Changes here update department names across this location.
+                  Renames and removals apply to crew assignments.
                 </div>
 
                 {departmentsError && (
@@ -848,20 +881,44 @@ export default function CrewTab({
                 <div style={{ display: "grid", gap: 8 }}>
                   {deptDraft.map((dept, idx) => (
                     <div
-                      key={`${dept}-${idx}`}
+                      key={`dept-row-${idx}`}
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "1fr auto",
+                        gridTemplateColumns: "1fr auto auto",
                         gap: 8,
                         alignItems: "center",
                       }}
                     >
-                      <input
-                        value={dept}
-                        onChange={(e) => updateDepartment(idx, e.target.value)}
-                        style={S.input}
-                        placeholder="Department name"
-                      />
+                      {editingDeptIdx === idx ? (
+                        <input
+                          value={dept?.name || ""}
+                          onChange={(e) =>
+                            updateDepartment(idx, e.target.value)
+                          }
+                          style={S.input}
+                          placeholder="Department name"
+                          autoFocus
+                        />
+                      ) : (
+                        <div style={{ fontWeight: 700 }}>
+                          {dept?.name || ""}
+                        </div>
+                      )}
+                      {editingDeptIdx === idx ? (
+                        <button
+                          style={S.button("subtle")}
+                          onClick={() => setEditingDeptIdx(null)}
+                        >
+                          Done
+                        </button>
+                      ) : (
+                        <button
+                          style={S.button("subtle")}
+                          onClick={() => setEditingDeptIdx(idx)}
+                        >
+                          Edit
+                        </button>
+                      )}
                       <button
                         style={S.button("danger")}
                         onClick={() => removeDepartment(idx)}

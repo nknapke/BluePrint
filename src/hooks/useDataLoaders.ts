@@ -346,18 +346,25 @@ export function useDataLoaders({
           name: d.department_name,
           active: d.is_department_active ?? true,
         }),
-        setRows: (rows: Array<{ name: string; active: boolean }>) => {
-          const names = (rows || [])
+        setRows: (rows: Array<{ id: number; name: string; active: boolean }>) => {
+          const cleaned = (rows || [])
             .filter((r) => r.active !== false)
-            .map((r) => String(r.name || "").trim())
-            .filter(Boolean);
+            .map((r) => ({
+              id: r.id,
+              name: String(r.name || "").trim(),
+              active: r.active !== false,
+            }))
+            .filter((r) => r.name);
+
           const hasRows = (rows || []).length > 0;
-          const next =
-            names.length > 0
-              ? names
-              : hasRows
-              ? []
-              : DEFAULT_DEPARTMENTS.slice();
+          const next = hasRows
+            ? cleaned
+            : DEFAULT_DEPARTMENTS.map((name) => ({
+                id: null,
+                name,
+                active: true,
+              }));
+
           setDepartments(next);
           setDepartmentsFromDb(hasRows);
         },

@@ -264,12 +264,28 @@ export default function App() {
     setAddingCrew,
   } = useAppState();
 
+  const departmentNames = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    (departments || []).forEach((d) => {
+      if (d?.active === false) return;
+      const name = String(d?.name || "").trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(name);
+    });
+    return out;
+  }, [departments]);
+
   useEffect(() => {
-    if (!departments.length) return;
-    if (!departments.includes(newCrewDept)) {
-      setNewCrewDept(departments[0] || "");
+    if (departmentsLoading) return;
+    if (!departmentNames.length) return;
+    if (!departmentNames.includes(newCrewDept)) {
+      setNewCrewDept(departmentNames[0] || "");
     }
-  }, [departments, newCrewDept, setNewCrewDept]);
+  }, [departmentNames, departmentsLoading, newCrewDept, setNewCrewDept]);
 
   // LocationContext (global)
   const { activeLocationId, setActiveLocationId } = useLocation();
@@ -600,7 +616,7 @@ export default function App() {
   // Crew actions
   function openAddCrew() {
     setNewCrewName("");
-    setNewCrewDept(departments[0] || "");
+    setNewCrewDept(departmentNames[0] || "");
     setNewCrewStatus("Active");
     setAddCrewOpen(true);
   }
@@ -645,23 +661,38 @@ export default function App() {
     }
   }
 
-  async function saveDepartments(nextDepartments: string[]) {
+  async function saveDepartments(
+    nextDepartments: Array<{
+      id?: number | null;
+      name: string;
+      originalName?: string;
+    }>
+  ) {
     if (!activeLocationId) {
       alert("Pick a location before saving departments.");
       return;
     }
 
     const cleaned = (nextDepartments || [])
-      .map((d) => String(d || "").trim())
-      .filter(Boolean);
+      .map((d) => ({
+        id: d?.id ?? null,
+        name: String(d?.name || "").trim(),
+        originalName: String(d?.originalName || "").trim(),
+      }))
+      .filter((d) => d.name);
 
     const seen = new Set<string>();
-    const unique: string[] = [];
-    for (const name of cleaned) {
-      const key = name.toLowerCase();
+    const unique: typeof cleaned = [];
+    for (const row of cleaned) {
+      const key = row.name.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      unique.push(name);
+      unique.push(row);
+    }
+
+    if (unique.length !== cleaned.length) {
+      alert("Duplicate department names found. Please make them unique.");
+      return;
     }
 
     if (!unique.length) {
@@ -669,13 +700,27 @@ export default function App() {
       return;
     }
 
-    const currentSource = departmentsFromDb ? departments : [];
-    const current = (currentSource || []).map((d) => String(d || "").trim());
-    const currentSet = new Set(current.map((d) => d.toLowerCase()));
-    const nextSet = new Set(unique.map((d) => d.toLowerCase()));
+    const currentRows = (departments || []).filter((d) => d?.active !== false);
+    const currentById = new Map(
+      currentRows
+        .filter((d) => d?.id != null)
+        .map((d) => [Number(d.id), d])
+    );
 
-    const toAdd = unique.filter((d) => !currentSet.has(d.toLowerCase()));
-    const toRemove = current.filter((d) => !nextSet.has(d.toLowerCase()));
+    const nextIds = new Set(
+      unique.filter((d) => d.id != null).map((d) => Number(d.id))
+    );
+    const toRemove = currentRows.filter(
+      (d) => d?.id != null && !nextIds.has(Number(d.id))
+    );
+    const nextNameSet = new Set(unique.map((d) => d.name.toLowerCase()));
+    const removedByName = currentRows.filter((d) => {
+      if (d?.id != null) return false; // id-backed rows are handled by toRemove
+      const name = String(d?.name || "").trim();
+      if (!name) return false;
+      return !nextNameSet.has(name.toLowerCase());
+    });
+    const toAdd = unique.filter((d) => d.id == null);
 
     try {
       setDepartmentsError("");
@@ -683,23 +728,135 @@ export default function App() {
       if (toAdd.length) {
         await supabasePost(
           "/rest/v1/department_definitions",
-          toAdd.map((name) => ({
-            department_name: name,
+          toAdd.map((row) => ({
+            department_name: row.name,
             is_department_active: true,
             location_id: activeLocationId,
           }))
         );
       }
 
-      for (const name of toRemove) {
-        const encoded = encodeURIComponent(name);
+      for (const row of toRemove) {
+        const oldName = String(row?.name || "").trim();
+        if (!oldName) continue;
         await supabaseDelete(
-          `/rest/v1/department_definitions?location_id=eq.${activeLocationId}&department_name=eq.${encoded}`
+          `/rest/v1/department_definitions?id=eq.${row.id}&location_id=eq.${activeLocationId}`
         );
+        const encoded = encodeURIComponent(oldName);
+        await supabasePatch(
+          `/rest/v1/crew_roster?location_id=eq.${activeLocationId}&home_department=eq.${encoded}`,
+          { home_department: "" }
+        );
+
+        if (
+          String(crewDeptFilter || "").toLowerCase() ===
+          oldName.toLowerCase()
+        ) {
+          setCrewDeptFilter("ALL");
+        }
+        if (
+          String(newCrewDept || "").toLowerCase() ===
+          oldName.toLowerCase()
+        ) {
+          setNewCrewDept("");
+        }
+      }
+
+      for (const row of removedByName) {
+        const oldName = String(row?.name || "").trim();
+        if (!oldName) continue;
+        const encoded = encodeURIComponent(oldName);
+        await supabasePatch(
+          `/rest/v1/crew_roster?location_id=eq.${activeLocationId}&home_department=eq.${encoded}`,
+          { home_department: "" }
+        );
+
+        if (
+          String(crewDeptFilter || "").toLowerCase() ===
+          oldName.toLowerCase()
+        ) {
+          setCrewDeptFilter("ALL");
+        }
+        if (
+          String(newCrewDept || "").toLowerCase() ===
+          oldName.toLowerCase()
+        ) {
+          setNewCrewDept("");
+        }
+      }
+
+      for (const row of unique) {
+        if (row.id == null) continue;
+        const current = currentById.get(Number(row.id));
+        const oldName =
+          row.originalName ||
+          String(current?.name || "").trim() ||
+          row.name;
+        const newName = row.name;
+        if (!oldName) continue;
+        if (oldName.toLowerCase() === newName.toLowerCase()) continue;
+
+        await supabasePatch(
+          `/rest/v1/department_definitions?id=eq.${row.id}&location_id=eq.${activeLocationId}`,
+          { department_name: newName }
+        );
+
+        const encodedOld = encodeURIComponent(oldName);
+        await supabasePatch(
+          `/rest/v1/crew_roster?location_id=eq.${activeLocationId}&home_department=eq.${encodedOld}`,
+          { home_department: newName }
+        );
+
+        if (
+          String(crewDeptFilter || "").toLowerCase() ===
+          oldName.toLowerCase()
+        ) {
+          setCrewDeptFilter(newName);
+        }
+        if (
+          String(newCrewDept || "").toLowerCase() ===
+          oldName.toLowerCase()
+        ) {
+          setNewCrewDept(newName);
+        }
+      }
+
+      for (const row of unique) {
+        if (row.id != null) continue;
+        const oldName = String(row.originalName || "").trim();
+        const newName = row.name;
+        if (!oldName) continue;
+        if (oldName.toLowerCase() === newName.toLowerCase()) continue;
+        const encodedOld = encodeURIComponent(oldName);
+        await supabasePatch(
+          `/rest/v1/crew_roster?location_id=eq.${activeLocationId}&home_department=eq.${encodedOld}`,
+          { home_department: newName }
+        );
+
+        if (
+          String(crewDeptFilter || "").toLowerCase() ===
+          oldName.toLowerCase()
+        ) {
+          setCrewDeptFilter(newName);
+        }
+        if (
+          String(newCrewDept || "").toLowerCase() ===
+          oldName.toLowerCase()
+        ) {
+          setNewCrewDept(newName);
+        }
       }
 
       invalidateMany(["/rest/v1/department_definitions"]);
-      await loadDepartments(true);
+      invalidateMany([
+        "/rest/v1/crew_roster",
+        "/rest/v1/v_training_dashboard_with_signer",
+      ]);
+      await Promise.all([
+        loadDepartments(true),
+        loadCrew(true),
+        loadTrainingRecords(true),
+      ]);
     } catch (e) {
       const msg = getErrorMessage(e);
       alert("Failed to save departments:\n" + msg);
@@ -1466,7 +1623,7 @@ export default function App() {
     <div style={S.page}>
       <AppModals
         S={S}
-        departments={departments}
+        departments={departmentNames}
         addCrewOpen={addCrewOpen}
         closeAddCrew={closeAddCrew}
         addingCrew={addingCrew}

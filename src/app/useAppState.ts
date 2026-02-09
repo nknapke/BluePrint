@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type {
   Crew,
+  Department,
   Location,
   Requirement,
   Signoff,
@@ -21,8 +22,8 @@ import {
 export function useAppState() {
   const [activeTab, setActiveTab] = useState<TabId>("crew");
 
-  const [departments, setDepartments] = useState<Dept[]>(
-    DEFAULT_DEPARTMENTS.slice()
+  const [departments, setDepartments] = useState<Department[]>(
+    DEFAULT_DEPARTMENTS.map((name) => ({ id: null, name, active: true }))
   );
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
   const [departmentsError, setDepartmentsError] = useState("");

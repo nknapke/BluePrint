@@ -4,20 +4,20 @@ import AddTrainingModal from "../components/modals/AddTrainingModal";
 import MarkCompleteModal from "../components/modals/MarkCompleteModal";
 import HistoryModal from "../components/modals/HistoryModal";
 import type { Dispatch, SetStateAction } from "react";
-import type { Dept, ExpiryMode, YesNo } from "./constants";
+import type { ExpiryMode, YesNo } from "./constants";
 import type { TrainingGroup } from "../types/domain";
 
 type Props = {
   S: any;
-  departments: readonly Dept[];
+  departments: readonly string[];
 
   addCrewOpen: boolean;
   closeAddCrew: () => void;
   addingCrew: boolean;
   newCrewName: string;
   setNewCrewName: (value: string) => void;
-  newCrewDept: Dept;
-  setNewCrewDept: Dispatch<SetStateAction<Dept>>;
+  newCrewDept: string;
+  setNewCrewDept: Dispatch<SetStateAction<string>>;
   newCrewStatus: string;
   setNewCrewStatus: Dispatch<SetStateAction<string>>;
   confirmAddCrewMember: () => void;

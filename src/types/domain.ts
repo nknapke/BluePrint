@@ -13,6 +13,12 @@ export type Crew = {
   statusRaw: string;
 };
 
+export type Department = {
+  id: number | null;
+  name: string;
+  active: boolean;
+};
+
 export type Track = {
   id: number;
   localId: number | null;
