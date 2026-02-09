@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { hexToRgba, normalizeHex } from "../../utils/colors";
 
 const EMPTY_ARRAY = [];
 
@@ -132,6 +133,14 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
     const map = new Map();
     for (const t of trackOptions) {
       map.set(Number(t.id), t.name);
+    }
+    return map;
+  }, [trackOptions]);
+  const trackColorById = useMemo(() => {
+    const map = new Map();
+    for (const t of trackOptions) {
+      const hex = normalizeHex(t?.color);
+      if (hex) map.set(Number(t.id), hex);
     }
     return map;
   }, [trackOptions]);
@@ -374,11 +383,23 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                         {days.map((d) => {
                           const working = isWorking(d, c.id);
                           const trackId = getTrackId(d, c.id);
-                          const trackLabel =
-                            trackId != null && Number.isFinite(trackId)
-                              ? trackNameById.get(Number(trackId)) || ""
-                              : "";
-                          const hover = rowHover || hoverDate === d;
+                        const trackLabel =
+                          trackId != null && Number.isFinite(trackId)
+                            ? trackNameById.get(Number(trackId)) || ""
+                            : "";
+                        const trackHex =
+                          trackId != null && Number.isFinite(trackId)
+                            ? trackColorById.get(Number(trackId)) || ""
+                            : "";
+                        const trackGlow = trackHex
+                          ? {
+                              bg: hexToRgba(trackHex, 0.18),
+                              border: hexToRgba(trackHex, 0.45),
+                              shadow: hexToRgba(trackHex, 0.35),
+                              inset: hexToRgba(trackHex, 0.28),
+                            }
+                          : null;
+                        const hover = rowHover || hoverDate === d;
 
                           return (
                             <div
@@ -389,40 +410,55 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                                 setHoverDate(d);
                                 dragOver(d, c.id);
                               }}
-                              style={{
-                                ...cellBase,
-                                background: working
-                                  ? "linear-gradient(180deg, rgba(90,150,255,0.32) 0%, rgba(90,150,255,0.16) 100%)"
-                                  : hover
-                                  ? "rgba(255,255,255,0.05)"
-                                  : "rgba(255,255,255,0.02)",
-                                border: working
-                                  ? "1px solid rgba(90,150,255,0.40)"
-                                  : "1px solid rgba(255,255,255,0.08)",
-                                boxShadow: hover
-                                  ? "0 6px 16px rgba(0,0,0,0.25)"
-                                  : "none",
-                                transform: hover ? "translateY(-1px)" : "none",
-                                opacity: savePaused ? 0.6 : 1,
-                              }}
-                            >
-                              {working ? (
-                                <select
-                                  value={
-                                    trackId != null && Number.isFinite(trackId)
-                                      ? String(trackId)
-                                      : ""
-                                  }
-                                  onChange={(e) =>
-                                    setTrackFor(d, c.id, e.target.value)
-                                  }
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onMouseEnter={(e) => e.stopPropagation()}
-                                  disabled={savePaused}
-                                  title={trackLabel || "No track"}
-                                  style={trackSelect}
-                                >
+                            style={{
+                              ...cellBase,
+                              background: working
+                                ? trackGlow
+                                  ? `linear-gradient(180deg, ${trackGlow.bg} 0%, rgba(255,255,255,0.02) 100%)`
+                                  : "linear-gradient(180deg, rgba(90,150,255,0.32) 0%, rgba(90,150,255,0.16) 100%)"
+                                : hover
+                                ? "rgba(255,255,255,0.05)"
+                                : "rgba(255,255,255,0.02)",
+                              border: working
+                                ? trackGlow
+                                  ? `1px solid ${trackGlow.border}`
+                                  : "1px solid rgba(90,150,255,0.40)"
+                                : "1px solid rgba(255,255,255,0.08)",
+                              boxShadow: trackGlow
+                                ? `0 0 0 1px ${trackGlow.inset} inset, 0 8px 20px ${trackGlow.shadow}`
+                                : hover
+                                ? "0 6px 16px rgba(0,0,0,0.25)"
+                                : "none",
+                              transform: hover ? "translateY(-1px)" : "none",
+                              opacity: savePaused ? 0.6 : 1,
+                            }}
+                          >
+                            {working ? (
+                              <select
+                                value={
+                                  trackId != null && Number.isFinite(trackId)
+                                    ? String(trackId)
+                                    : ""
+                                }
+                                onChange={(e) =>
+                                  setTrackFor(d, c.id, e.target.value)
+                                }
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseEnter={(e) => e.stopPropagation()}
+                                disabled={savePaused}
+                                title={trackLabel || "No track"}
+                                style={
+                                  trackGlow
+                                    ? {
+                                        ...trackSelect,
+                                        border: `1px solid ${trackGlow.border}`,
+                                        boxShadow: `0 0 0 1px ${trackGlow.inset} inset, 0 6px 14px ${trackGlow.shadow}`,
+                                        background: "rgba(12,16,26,0.72)",
+                                      }
+                                    : trackSelect
+                                }
+                              >
                                   <option value="">No track</option>
                                   {trackOptions.map((t) => (
                                     <option key={t.id} value={t.id}>
