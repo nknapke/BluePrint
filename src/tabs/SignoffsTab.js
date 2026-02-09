@@ -338,14 +338,28 @@ function SignoffsMatrixTab({
   );
 
   const baseCrew = useMemo(() => {
-    if (signoffsCrewId === "ALL") return activeCrew;
-    return activeCrew.filter((c) => String(c.id) === String(signoffsCrewId));
+    const list =
+      signoffsCrewId === "ALL"
+        ? activeCrew.slice()
+        : activeCrew.filter((c) => String(c.id) === String(signoffsCrewId));
+    return list.sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || ""), undefined, {
+        sensitivity: "base",
+      })
+    );
   }, [activeCrew, signoffsCrewId]);
 
   const baseTracks = useMemo(() => {
-    if (signoffsTrackId === "ALL") return tracksWithColor;
-    return tracksWithColor.filter(
-      (t) => String(t.id) === String(signoffsTrackId)
+    const list =
+      signoffsTrackId === "ALL"
+        ? tracksWithColor.slice()
+        : tracksWithColor.filter(
+            (t) => String(t.id) === String(signoffsTrackId)
+          );
+    return list.sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || ""), undefined, {
+        sensitivity: "base",
+      })
     );
   }, [tracksWithColor, signoffsTrackId]);
 
@@ -927,30 +941,27 @@ function SignoffsListTab({
       map.get(key).items.push(s);
     }
 
-    const orderCrew = new Map(crew.map((c, i) => [String(c.id), i]));
-    const orderTrack = new Map(tracks.map((t, i) => [String(t.id), i]));
-
     const out = Array.from(map.values());
-    out.sort((a, b) => {
-      const ai = isCrew
-        ? orderCrew.get(a.key) ?? 9999
-        : orderTrack.get(a.key) ?? 9999;
-      const bi = isCrew
-        ? orderCrew.get(b.key) ?? 9999
-        : orderTrack.get(b.key) ?? 9999;
-      if (ai !== bi) return ai - bi;
-      return String(a.title).localeCompare(String(b.title));
-    });
+    out.sort((a, b) =>
+      String(a.title).localeCompare(String(b.title), undefined, {
+        sensitivity: "base",
+      })
+    );
 
     for (const g of out) {
       g.items.sort((a, b) => {
-        if (isCrew) return String(a.trackName).localeCompare(String(b.trackName));
-        return String(a.crewName).localeCompare(String(b.crewName));
+        if (isCrew)
+          return String(a.trackName).localeCompare(String(b.trackName), undefined, {
+            sensitivity: "base",
+          });
+        return String(a.crewName).localeCompare(String(b.crewName), undefined, {
+          sensitivity: "base",
+        });
       });
     }
 
     return out;
-  }, [filteredForView, signoffsViewMode, crew, tracks]);
+  }, [filteredForView, signoffsViewMode]);
 
   const deptGroups = useMemo(() => {
     if (signoffsViewMode !== "crew") return [];
@@ -972,7 +983,11 @@ function SignoffsListTab({
         counts: computeStats(d.items, isQualifiedStatus),
         crewCount: d.groups.length,
       }))
-      .sort((a, b) => String(a.dept).localeCompare(String(b.dept)));
+      .sort((a, b) =>
+        String(a.dept).localeCompare(String(b.dept), undefined, {
+          sensitivity: "base",
+        })
+      );
   }, [groups, signoffsViewMode, crewById, isQualifiedStatus]);
 
   useEffect(() => {

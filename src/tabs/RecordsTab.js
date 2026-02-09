@@ -513,45 +513,23 @@ function computeCounts(items) {
 
 function sortGroupList(groups) {
   const g = [...groups];
-  g.sort((a, b) => {
-    if (a.overdue !== b.overdue) return b.overdue - a.overdue;
-    if (a.due !== b.due) return b.due - a.due;
-    if (a.notCompleted !== b.notCompleted)
-      return b.notCompleted - a.notCompleted;
-    return String(a.title).localeCompare(String(b.title));
-  });
+  g.sort((a, b) =>
+    String(a.title).localeCompare(String(b.title), undefined, {
+      sensitivity: "base",
+    })
+  );
   return g;
 }
 
 function sortRecords(items, tieNameField) {
   const arr = [...items];
-  arr.sort((a, b) => {
-    const ra = rankRecord(a);
-    const rb = rankRecord(b);
-    if (ra !== rb) return ra - rb;
-
-    if (ra === 0) {
-      const ao = Number(a.daysOverdue ?? 0);
-      const bo = Number(b.daysOverdue ?? 0);
-      if (ao !== bo) return bo - ao;
-    }
-
-    if (ra === 1) {
-      const au =
-        a.daysUntilDue == null
-          ? Number.POSITIVE_INFINITY
-          : Number(a.daysUntilDue);
-      const bu =
-        b.daysUntilDue == null
-          ? Number.POSITIVE_INFINITY
-          : Number(b.daysUntilDue);
-      if (au !== bu) return au - bu;
-    }
-
-    return String(a[tieNameField] || "").localeCompare(
-      String(b[tieNameField] || "")
-    );
-  });
+  arr.sort((a, b) =>
+    String(a[tieNameField] || "").localeCompare(
+      String(b[tieNameField] || ""),
+      undefined,
+      { sensitivity: "base" }
+    )
+  );
   return arr;
 }
 
@@ -787,6 +765,31 @@ export default function RecordsTab({
 
   const stats = useMemo(() => computeCounts(baseFiltered), [baseFiltered]);
 
+  const listSorted = useMemo(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      const crewCmp = String(a.crewName || "").localeCompare(
+        String(b.crewName || ""),
+        undefined,
+        { sensitivity: "base" }
+      );
+      if (crewCmp !== 0) return crewCmp;
+
+      const trainingCmp = String(a.trainingName || "").localeCompare(
+        String(b.trainingName || ""),
+        undefined,
+        { sensitivity: "base" }
+      );
+      if (trainingCmp !== 0) return trainingCmp;
+
+      return String(a.trackName || "").localeCompare(
+        String(b.trackName || ""),
+        undefined,
+        { sensitivity: "base" }
+      );
+    });
+    return arr;
+  }, [filtered]);
   const crewSubtitleByKey = useMemo(() => {
     const map = new Map();
     for (const r of filtered) {
@@ -1394,8 +1397,8 @@ export default function RecordsTab({
         {!recordsLoading && !recordsError && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {viewMode === "list" ? (
-              filtered.length > 0 ? (
-                renderLeafCard(filtered, "crewView", "list")
+              listSorted.length > 0 ? (
+                renderLeafCard(listSorted, "crewView", "list")
               ) : (
                 <div style={{ padding: 18, opacity: 0.75 }}>
                   No records match your filters.

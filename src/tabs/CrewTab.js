@@ -172,7 +172,6 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast, deptOptions }) {
             )}
           </div>
 
-          {!isEditing && <StatusBadge S={S} active={c.active} />}
         </div>
 
         <div
@@ -364,7 +363,11 @@ export default function CrewTab({
       };
     });
 
-    groups.sort((a, b) => String(a.title).localeCompare(String(b.title)));
+    groups.sort((a, b) =>
+      String(a.title).localeCompare(String(b.title), undefined, {
+        sensitivity: "base",
+      })
+    );
     return groups;
   }, [baseList]);
 
@@ -381,7 +384,7 @@ export default function CrewTab({
     if (crewDeptFilter !== "ALL") add(crewDeptFilter);
 
     return Array.from(map.values()).sort((a, b) =>
-      String(a).localeCompare(String(b))
+      String(a).localeCompare(String(b), undefined, { sensitivity: "base" })
     );
   }, [crewDepartments, departments, crewDeptFilter]);
 
