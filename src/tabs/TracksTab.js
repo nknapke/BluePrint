@@ -1,100 +1,9 @@
 // TracksTab.js
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
-import { Chevron } from "../components/ui/Chevron";
 import { DotCount } from "../components/ui/DotCount";
 import { FieldLabel } from "../components/ui/FieldLabel";
 import { IdMeta } from "../components/ui/IdMeta";
-import { useExpandableKeys } from "../hooks/useExpandableKeys";
 import { hexToRgba } from "../utils/colors";
-
-function GroupHeaderIOS({ title, subtitle, open, onToggle, counts }) {
-  const active = counts?.active ?? 0;
-  const inactive = counts?.inactive ?? 0;
-
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-2px) scale(1.01)";
-        e.currentTarget.style.boxShadow = "0 28px 64px rgba(0,0,0,0.38)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "translateY(0) scale(1)";
-        e.currentTarget.style.boxShadow = open
-          ? "0 18px 46px rgba(0,0,0,0.28)"
-          : "0 12px 30px rgba(0,0,0,0.18)";
-      }}
-      style={{
-        width: "100%",
-        cursor: "pointer",
-        userSelect: "none",
-        padding: "14px 14px",
-        borderRadius: 18,
-        border: open
-          ? "1px solid rgba(255,255,255,0.14)"
-          : "1px solid rgba(255,255,255,0.10)",
-        background: open
-          ? "linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.12) 100%)"
-          : "rgba(0,0,0,0.16)",
-        boxShadow: open
-          ? "0 18px 46px rgba(0,0,0,0.28)"
-          : "0 12px 30px rgba(0,0,0,0.18)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        color: "rgba(255,255,255,0.92)",
-        textAlign: "left",
-        transition:
-          "transform 180ms ease, box-shadow 220ms ease, background 180ms ease",
-        position: "relative",
-        overflow: "hidden",
-      }}
-      onMouseDown={(e) => {
-        e.currentTarget.style.transform = "scale(0.99)";
-        setTimeout(() => {
-          if (e.currentTarget) e.currentTarget.style.transform = "scale(1)";
-        }, 120);
-      }}
-      aria-expanded={open}
-    >
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
-          minWidth: 0,
-        }}
-      >
-        <div
-          style={{ fontSize: 14, fontWeight: 880, letterSpacing: "-0.01em" }}
-        >
-          {title}
-        </div>
-        <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.62 }}>
-          {subtitle}
-        </div>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <DotCount
-            color="rgba(52,199,89,0.90)"
-            count={active}
-            title={`Active: ${active}`}
-          />
-          <DotCount
-            color="rgba(142,142,147,0.85)"
-            count={inactive}
-            title={`Inactive: ${inactive}`}
-          />
-        </div>
-        <Chevron open={open} />
-      </div>
-    </button>
-  );
-}
 
 /** ---------- Color Picker Row (only shown in Edit mode) ---------- */
 function ColorPickerInline({
@@ -434,6 +343,7 @@ export default function TracksTab({
   updateTrackColor,
 }) {
   const [q, setQ] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
 
   const baseList = useMemo(() => {
     const list = Array.isArray(tracks) ? tracks : [];
@@ -448,38 +358,39 @@ export default function TracksTab({
     });
   }, [tracks, q]);
 
-  const grouped = useMemo(() => {
-    const activeItems = [];
-    const inactiveItems = [];
-
+  const counts = useMemo(() => {
+    let active = 0;
+    let inactive = 0;
     for (const t of baseList) {
-      if (t.active) activeItems.push(t);
-      else inactiveItems.push(t);
+      if (t.active) active += 1;
+      else inactive += 1;
     }
-
-    const sortByNameThenId = (a, b) => {
-      const an = String(a.name || "").localeCompare(String(b.name || ""));
-      if (an !== 0) return an;
-      return Number(a.id) - Number(b.id);
-    };
-
-    activeItems.sort(sortByNameThenId);
-    inactiveItems.sort(sortByNameThenId);
-
-    return [
-      { key: "Active", title: "Active", items: activeItems },
-      { key: "Inactive", title: "Inactive", items: inactiveItems },
-    ];
+    return { active, inactive };
   }, [baseList]);
 
-  const groupKeys = useMemo(() => grouped.map((g) => g.key), [grouped]);
-  const expand = useExpandableKeys(groupKeys, { defaultExpanded: true });
-  const toggleGroup = useCallback((key) => expand.toggle(key), [expand]);
+  const sortByNameThenId = useCallback((a, b) => {
+    const an = String(a.name || "").localeCompare(String(b.name || ""));
+    if (an !== 0) return an;
+    return Number(a.id) - Number(b.id);
+  }, []);
+
+  const visibleList = useMemo(() => {
+    const list = showInactive
+      ? baseList
+      : baseList.filter((t) => t.active);
+    const sorted = [...list].sort((a, b) => {
+      if (showInactive && a.active !== b.active) {
+        return a.active ? -1 : 1;
+      }
+      return sortByNameThenId(a, b);
+    });
+    return sorted;
+  }, [baseList, showInactive, sortByNameThenId]);
 
   const resetAll = useCallback(() => {
     setQ("");
-    expand.resetToDefault();
-  }, [expand]);
+    setShowInactive(false);
+  }, []);
 
   const stickyShell = {
     position: "sticky",
@@ -523,8 +434,8 @@ export default function TracksTab({
     toggleTrackActive,
   };
 
-  const activeCount = grouped[0]?.items?.length ?? 0;
-  const inactiveCount = grouped[1]?.items?.length ?? 0;
+  const activeCount = counts.active;
+  const inactiveCount = counts.inactive;
 
   return (
     <div style={S.card}>
@@ -564,11 +475,14 @@ export default function TracksTab({
             />
 
             <div style={{ display: "flex", gap: 8 }}>
-              <button style={S.button("subtle")} onClick={expand.expandAll}>
-                Expand
-              </button>
-              <button style={S.button("subtle")} onClick={expand.collapseAll}>
-                Collapse
+              <button
+                style={S.button(showInactive ? "subtle" : "ghost")}
+                onClick={() => setShowInactive((v) => !v)}
+                title={
+                  showInactive ? "Hide inactive tracks" : "Show inactive tracks"
+                }
+              >
+                {showInactive ? "Hide Inactive" : "Show Inactive"}
               </button>
             </div>
 
@@ -592,68 +506,43 @@ export default function TracksTab({
 
         {canRender && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {grouped.map((g) => {
-              const open = expand.expanded.has(g.key);
-
-              const counts =
-                g.key === "Active"
-                  ? { active: g.items.length, inactive: 0 }
-                  : { active: 0, inactive: g.items.length };
-
-              return (
+            {visibleList.length > 0 ? (
+              <div
+                style={{
+                  padding: 10,
+                  borderRadius: 16,
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  background: "rgba(0,0,0,0.14)",
+                  boxShadow: "0 14px 36px rgba(0,0,0,0.18)",
+                }}
+              >
                 <div
-                  key={g.key}
-                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                  style={{
+                    borderRadius: 14,
+                    overflow: "hidden",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    background: "rgba(0,0,0,0.18)",
+                  }}
                 >
-                  <GroupHeaderIOS
-                    title={g.title}
-                    subtitle={`${g.items.length} tracks`}
-                    open={open}
-                    onToggle={() => toggleGroup(g.key)}
-                    counts={counts}
-                  />
-
-                  {open && (
-                    <div
-                      style={{
-                        marginLeft: 18,
-                        padding: 10,
-                        borderRadius: 16,
-                        border: "1px solid rgba(255,255,255,0.10)",
-                        background: "rgba(0,0,0,0.14)",
-                        boxShadow: "0 14px 36px rgba(0,0,0,0.18)",
-                      }}
-                    >
-                      <div
-                        style={{
-                          borderRadius: 14,
-                          overflow: "hidden",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          background: "rgba(0,0,0,0.18)",
-                        }}
-                      >
-                        {g.items.map((t, idx) => (
-                          <TrackRowCard
-                            key={t.id}
-                            S={S}
-                            t={t}
-                            edit={edit}
-                            actions={actions}
-                            updateTrackColor={updateTrackColor}
-                            isFirst={idx === 0}
-                            isLast={idx === g.items.length - 1}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {visibleList.map((t, idx) => (
+                    <TrackRowCard
+                      key={t.id}
+                      S={S}
+                      t={t}
+                      edit={edit}
+                      actions={actions}
+                      updateTrackColor={updateTrackColor}
+                      isFirst={idx === 0}
+                      isLast={idx === visibleList.length - 1}
+                    />
+                  ))}
                 </div>
-              );
-            })}
-
-            {baseList.length === 0 && (
+              </div>
+            ) : (
               <div style={{ padding: 18, opacity: 0.75 }}>
-                No tracks match your search.
+                {showInactive
+                  ? "No tracks match your search."
+                  : "No active tracks match your search."}
               </div>
             )}
           </div>
