@@ -46,7 +46,7 @@ export default function PlannerTab({
     locationId: locId,
     supabaseGet,
     supabasePost,
-    days: 14,
+    days: 7,
   });
 
   const weekLabel = useMemo(() => {

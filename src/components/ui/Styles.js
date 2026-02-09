@@ -2,8 +2,7 @@ export function createStyles() {
   return {
     page: {
       minHeight: "100vh",
-      background:
-        "radial-gradient(1200px 600px at 20% -10%, rgba(0,122,255,0.18), rgba(0,0,0,0) 55%), radial-gradient(900px 500px at 90% 10%, rgba(88,86,214,0.16), rgba(0,0,0,0) 60%), linear-gradient(180deg, #0b0c10 0%, #0f1117 45%, #0b0c10 100%)",
+      background: "transparent",
       color: "rgba(255,255,255,0.92)",
       fontFamily:
         '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif',

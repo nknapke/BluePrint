@@ -2,3 +2,29 @@
   font-family: sans-serif;
   text-align: center;
 }
+
+:root {
+  --app-bg: radial-gradient(
+      1200px 600px at 20% -10%,
+      rgba(0, 122, 255, 0.18),
+      rgba(0, 0, 0, 0) 55%
+    ),
+    radial-gradient(
+      900px 500px at 90% 10%,
+      rgba(88, 86, 214, 0.16),
+      rgba(0, 0, 0, 0) 60%
+    ),
+    linear-gradient(180deg, #0b0c10 0%, #0f1117 45%, #0b0c10 100%);
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  background: var(--app-bg);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  background-size: cover;
+}

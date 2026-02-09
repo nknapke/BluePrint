@@ -126,6 +126,13 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
       .slice()
       .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   }, [tracks]);
+  const trackNameById = useMemo(() => {
+    const map = new Map();
+    for (const t of trackOptions) {
+      map.set(Number(t.id), t.name);
+    }
+    return map;
+  }, [trackOptions]);
 
   /** ---------- paint logic ---------- */
 
@@ -176,9 +183,14 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
     marginTop: 12,
   };
 
-  const gridTemplateColumns = `260px repeat(${days.length}, minmax(72px, 1fr))`;
-  const minGridWidth = 260 + days.length * 86;
-  const gridWrap = { overflowX: "auto", paddingBottom: 6 };
+  const dayColMin = 120;
+  const gridTemplateColumns = `260px repeat(${days.length}, minmax(${dayColMin}px, 1fr))`;
+  const minGridWidth = 260 + days.length * (dayColMin + 14);
+  const gridWrap = {
+    overflowX: "auto",
+    paddingBottom: 6,
+    overscrollBehaviorX: "contain",
+  };
   const gridRow = {
     display: "grid",
     gridTemplateColumns,
@@ -342,6 +354,10 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                       {days.map((d) => {
                         const working = isWorking(d, c.id);
                         const trackId = getTrackId(d, c.id);
+                        const trackLabel =
+                          trackId != null && Number.isFinite(trackId)
+                            ? trackNameById.get(Number(trackId)) || ""
+                            : "";
                         const hover = rowHover || hoverDate === d;
 
                         return (
@@ -384,6 +400,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                                 onClick={(e) => e.stopPropagation()}
                                 onMouseEnter={(e) => e.stopPropagation()}
                                 disabled={savePaused}
+                                title={trackLabel || "No track"}
                                 style={trackSelect}
                               >
                                 <option value="">No track</option>
