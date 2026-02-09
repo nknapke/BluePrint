@@ -10,7 +10,7 @@ import type {
   TrainingRecord,
 } from "../types/domain";
 import {
-  DEPARTMENTS,
+  DEFAULT_DEPARTMENTS,
   type Dept,
   type ExpiryMode,
   type ReqViewMode,
@@ -20,6 +20,13 @@ import {
 
 export function useAppState() {
   const [activeTab, setActiveTab] = useState<TabId>("crew");
+
+  const [departments, setDepartments] = useState<Dept[]>(
+    DEFAULT_DEPARTMENTS.slice()
+  );
+  const [departmentsLoading, setDepartmentsLoading] = useState(true);
+  const [departmentsError, setDepartmentsError] = useState("");
+  const [departmentsFromDb, setDepartmentsFromDb] = useState(false);
 
   // Locations list (for the dropdown)
   const [locations, setLocations] = useState<Location[]>([]);
@@ -137,7 +144,7 @@ export function useAppState() {
   const [addCrewOpen, setAddCrewOpen] = useState(false);
   const [newCrewName, setNewCrewName] = useState("");
   const [newCrewDept, setNewCrewDept] = useState<Dept>(
-    DEPARTMENTS[0] || ""
+    DEFAULT_DEPARTMENTS[0] || ""
   );
   const [newCrewStatus, setNewCrewStatus] = useState("Active");
   const [addingCrew, setAddingCrew] = useState(false);
@@ -145,6 +152,15 @@ export function useAppState() {
   return {
     activeTab,
     setActiveTab,
+
+    departments,
+    setDepartments,
+    departmentsLoading,
+    setDepartmentsLoading,
+    departmentsError,
+    setDepartmentsError,
+    departmentsFromDb,
+    setDepartmentsFromDb,
 
     locations,
     setLocations,

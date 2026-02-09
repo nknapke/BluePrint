@@ -12,6 +12,7 @@ import type {
   TrainingRecord,
 } from "../types/domain";
 import { useLocation } from "../context/LocationContext";
+import { DEFAULT_DEPARTMENTS } from "../app/constants";
 
 type SetState<T> = (value: SetStateAction<T>) => void;
 type SetRows<T> = (rows: T[]) => void;
@@ -40,6 +41,12 @@ type UseDataLoadersParams = {
   setLocations: SetState<any[]>;
   setLocationsLoading: SetState<boolean>;
   setLocationsError: SetState<string>;
+
+  // Departments
+  setDepartments: SetState<any[]>;
+  setDepartmentsLoading: SetState<boolean>;
+  setDepartmentsError: SetState<string>;
+  setDepartmentsFromDb: SetState<boolean>;
 
   // Crew
   setCrew: SetState<any[]>;
@@ -78,6 +85,13 @@ type UseDataLoadersParams = {
 };
 
 type LocationRow = Location;
+
+type DepartmentRow = {
+  id: number;
+  department_name: string;
+  is_department_active?: boolean | null;
+  location_id?: number;
+};
 
 type CrewRow = {
   id: number;
@@ -170,6 +184,12 @@ export function useDataLoaders({
   setLocationsLoading,
   setLocationsError,
 
+  // Departments
+  setDepartments,
+  setDepartmentsLoading,
+  setDepartmentsError,
+  setDepartmentsFromDb,
+
   // Crew
   setCrew,
   setCrewLoading,
@@ -210,6 +230,7 @@ export function useDataLoaders({
 
   const lastFetchRef = useRef<Record<string, number>>({
     locations: 0,
+    departments: 0,
     crew: 0,
     trackDefs: 0,
     trainingDefs: 0,
@@ -309,6 +330,45 @@ export function useDataLoaders({
       setLocations,
       setLocationsError,
       setLocationsLoading,
+    ]
+  );
+
+  const loadDepartments = useCallback(
+    async (force = false) => {
+      await loadList({
+        key: "departments",
+        force,
+        setLoading: setDepartmentsLoading,
+        setError: setDepartmentsError,
+        path: "/rest/v1/department_definitions?select=id,department_name,is_department_active,location_id&order=department_name.asc",
+        mapRow: (d: DepartmentRow) => ({
+          id: d.id,
+          name: d.department_name,
+          active: d.is_department_active ?? true,
+        }),
+        setRows: (rows: Array<{ name: string; active: boolean }>) => {
+          const names = (rows || [])
+            .filter((r) => r.active !== false)
+            .map((r) => String(r.name || "").trim())
+            .filter(Boolean);
+          const hasRows = (rows || []).length > 0;
+          const next =
+            names.length > 0
+              ? names
+              : hasRows
+              ? []
+              : DEFAULT_DEPARTMENTS.slice();
+          setDepartments(next);
+          setDepartmentsFromDb(hasRows);
+        },
+      });
+    },
+    [
+      loadList,
+      setDepartments,
+      setDepartmentsError,
+      setDepartmentsFromDb,
+      setDepartmentsLoading,
     ]
   );
 
@@ -486,6 +546,7 @@ export function useDataLoaders({
 
   return {
     loadLocations,
+    loadDepartments,
     loadCrew,
     loadTracks,
     loadTrainings,

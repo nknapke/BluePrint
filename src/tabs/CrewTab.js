@@ -275,6 +275,10 @@ export default function CrewTab({
   crew,
   visibleCrew,
   crewDepartments,
+  departments,
+  departmentsLoading,
+  departmentsError,
+  saveDepartments: persistDepartments,
 
   // loading + errors
   crewLoading,
@@ -308,6 +312,11 @@ export default function CrewTab({
 }) {
   const [q, setQ] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [deptDraft, setDeptDraft] = useState([]);
+  const [deptInput, setDeptInput] = useState("");
+  const [deptError, setDeptError] = useState("");
+  const [deptSaving, setDeptSaving] = useState(false);
 
   const baseList = useMemo(() => {
     const list = Array.isArray(visibleCrew) ? visibleCrew : [];
@@ -351,6 +360,23 @@ export default function CrewTab({
     groups.sort((a, b) => String(a.title).localeCompare(String(b.title)));
     return groups;
   }, [baseList]);
+
+  const deptOptions = useMemo(() => {
+    const map = new Map();
+    const add = (value) => {
+      const cleaned = String(value || "").trim();
+      if (!cleaned) return;
+      if (!map.has(cleaned)) map.set(cleaned, cleaned);
+    };
+
+    (crewDepartments || []).forEach(add);
+    (departments || []).forEach(add);
+    if (crewDeptFilter !== "ALL") add(crewDeptFilter);
+
+    return Array.from(map.values()).sort((a, b) =>
+      String(a).localeCompare(String(b))
+    );
+  }, [crewDepartments, departments, crewDeptFilter]);
 
   const deptKeys = useMemo(
     () => groupedByDept.map((g) => g.key),
@@ -416,6 +442,87 @@ export default function CrewTab({
     setFiltersOpen(false);
     deptExpand.resetToDefault();
   }, [setCrewNameFilter, setCrewDeptFilter, setCrewStatusFilter, deptExpand]);
+
+  const openManageDepartments = useCallback(() => {
+    setDeptDraft(Array.isArray(departments) ? departments.slice() : []);
+    setDeptInput("");
+    setDeptError("");
+    setManageOpen(true);
+  }, [departments]);
+
+  const closeManageDepartments = useCallback(() => {
+    setManageOpen(false);
+    setDeptError("");
+  }, []);
+
+  const updateDepartment = useCallback((idx, value) => {
+    setDeptDraft((prev) => {
+      const next = prev.slice();
+      next[idx] = value;
+      return next;
+    });
+  }, []);
+
+  const removeDepartment = useCallback((idx) => {
+    setDeptDraft((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  const addDepartment = useCallback(() => {
+    const name = String(deptInput || "").trim();
+    if (!name) return;
+    const exists = deptDraft.some(
+      (d) => String(d || "").trim().toLowerCase() === name.toLowerCase()
+    );
+    if (exists) {
+      setDeptError("That department already exists.");
+      return;
+    }
+    setDeptDraft((prev) => [...prev, name]);
+    setDeptInput("");
+    setDeptError("");
+  }, [deptInput, deptDraft]);
+
+  const buildDepartmentList = useCallback(() => {
+    const cleaned = deptDraft
+      .map((d) => String(d || "").trim())
+      .filter(Boolean);
+
+    const seen = new Set();
+    const unique = [];
+    for (const name of cleaned) {
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(name);
+    }
+
+    if (!unique.length) {
+      setDeptError("Please keep at least one department.");
+      return;
+    }
+
+    return unique;
+  }, [deptDraft]);
+
+  const handleSaveDepartments = useCallback(async () => {
+    const unique = buildDepartmentList();
+    if (!unique.length) {
+      setDeptError("Please keep at least one department.");
+      return;
+    }
+
+    setDeptSaving(true);
+    setDeptError("");
+    try {
+      await persistDepartments(unique);
+      setManageOpen(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setDeptError(msg);
+    } finally {
+      setDeptSaving(false);
+    }
+  }, [buildDepartmentList, persistDepartments]);
 
   const stickyShell = {
     position: "sticky",
@@ -502,6 +609,10 @@ export default function CrewTab({
             Add Crew Member
           </button>
 
+          <button style={S.button("subtle")} onClick={openManageDepartments}>
+            Manage Departments
+          </button>
+
           <button
             style={S.button("subtle")}
             onClick={() => loadCrew(true)}
@@ -577,7 +688,7 @@ export default function CrewTab({
                     style={{ ...S.select, width: "100%" }}
                   >
                     <option value="ALL">All departments</option>
-                    {crewDepartments.map((d) => (
+                    {deptOptions.map((d) => (
                       <option key={d} value={d}>
                         {prettyTitle(d)}
                       </option>
@@ -705,6 +816,113 @@ export default function CrewTab({
           </div>
         )}
       </div>
+
+      {manageOpen && (
+        <div style={S.modalOverlay} onMouseDown={closeManageDepartments}>
+          <div
+            style={S.modalCard}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div style={S.modalHeader}>
+              <h3 style={S.modalTitle}>Manage Departments</h3>
+              <button style={S.button("ghost")} onClick={closeManageDepartments}>
+                Close
+              </button>
+            </div>
+            <div style={S.modalBody}>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div style={{ ...S.helper, margin: 0 }}>
+                  Changes update the department dropdowns. Existing crew keep
+                  their current department.
+                </div>
+
+                {departmentsError && (
+                  <div style={S.error}>{departmentsError}</div>
+                )}
+                {deptError && <div style={S.error}>{deptError}</div>}
+
+                {departmentsLoading && (
+                  <div style={S.loading}>Loading departments...</div>
+                )}
+
+                <div style={{ display: "grid", gap: 8 }}>
+                  {deptDraft.map((dept, idx) => (
+                    <div
+                      key={`${dept}-${idx}`}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr auto",
+                        gap: 8,
+                        alignItems: "center",
+                      }}
+                    >
+                      <input
+                        value={dept}
+                        onChange={(e) => updateDepartment(idx, e.target.value)}
+                        style={S.input}
+                        placeholder="Department name"
+                      />
+                      <button
+                        style={S.button("danger")}
+                        onClick={() => removeDepartment(idx)}
+                        disabled={deptDraft.length <= 1}
+                        title={
+                          deptDraft.length <= 1
+                            ? "Keep at least one department"
+                            : "Remove department"
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto",
+                    gap: 8,
+                    alignItems: "center",
+                  }}
+                >
+                  <input
+                    value={deptInput}
+                    onChange={(e) => setDeptInput(e.target.value)}
+                    style={S.input}
+                    placeholder="Add a department"
+                  />
+                  <button style={S.button("subtle")} onClick={addDepartment}>
+                    Add
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: 8,
+                  }}
+                >
+                  <button
+                    style={S.button("ghost")}
+                    onClick={closeManageDepartments}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    style={S.button("primary", deptSaving)}
+                    onClick={handleSaveDepartments}
+                    disabled={deptSaving}
+                  >
+                    {deptSaving ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

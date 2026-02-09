@@ -7,7 +7,6 @@ import { createSupabaseRestClient } from "./lib/supabaseRest";
 import { createStyles } from "./components/ui/Styles";
 
 import {
-  DEPARTMENTS,
   LOCATION_SCOPED_CACHE_KEYS,
   REFRESH_MS,
   TABS,
@@ -89,6 +88,15 @@ export default function App() {
   const {
     activeTab,
     setActiveTab,
+
+    departments,
+    setDepartments,
+    departmentsLoading,
+    setDepartmentsLoading,
+    departmentsError,
+    setDepartmentsError,
+    departmentsFromDb,
+    setDepartmentsFromDb,
 
     locations,
     setLocations,
@@ -256,6 +264,13 @@ export default function App() {
     setAddingCrew,
   } = useAppState();
 
+  useEffect(() => {
+    if (!departments.length) return;
+    if (!departments.includes(newCrewDept)) {
+      setNewCrewDept(departments[0] || "");
+    }
+  }, [departments, newCrewDept, setNewCrewDept]);
+
   // LocationContext (global)
   const { activeLocationId, setActiveLocationId } = useLocation();
 
@@ -284,6 +299,7 @@ export default function App() {
   // ---- Loaders (now read location from LocationContext internally) ----
   const {
     loadLocations,
+    loadDepartments,
     loadCrew,
     loadTracks,
     loadTrainings,
@@ -299,6 +315,11 @@ export default function App() {
     setLocations,
     setLocationsLoading,
     setLocationsError,
+
+    setDepartments,
+    setDepartmentsLoading,
+    setDepartmentsError,
+    setDepartmentsFromDb,
 
     setCrew,
     setCrewLoading,
@@ -541,6 +562,8 @@ export default function App() {
     if (!activeLocationId) return;
 
     // clear location-scoped state immediately to avoid flashes
+    setDepartments([]);
+    setDepartmentsFromDb(false);
     setCrew([]);
     setTracks([]);
     setTrainings([]);
@@ -562,6 +585,7 @@ export default function App() {
     (async () => {
       await Promise.all([
         loadCrew(true),
+        loadDepartments(true),
         loadTracks(true),
         loadTrainings(true),
         loadTrainingGroups(true),
@@ -576,7 +600,7 @@ export default function App() {
   // Crew actions
   function openAddCrew() {
     setNewCrewName("");
-    setNewCrewDept(DEPARTMENTS[0] || "");
+    setNewCrewDept(departments[0] || "");
     setNewCrewStatus("Active");
     setAddCrewOpen(true);
   }
@@ -618,6 +642,69 @@ export default function App() {
       setCrewError(getErrorMessage(e));
     } finally {
       setAddingCrew(false);
+    }
+  }
+
+  async function saveDepartments(nextDepartments: string[]) {
+    if (!activeLocationId) {
+      alert("Pick a location before saving departments.");
+      return;
+    }
+
+    const cleaned = (nextDepartments || [])
+      .map((d) => String(d || "").trim())
+      .filter(Boolean);
+
+    const seen = new Set<string>();
+    const unique: string[] = [];
+    for (const name of cleaned) {
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(name);
+    }
+
+    if (!unique.length) {
+      alert("Please keep at least one department.");
+      return;
+    }
+
+    const currentSource = departmentsFromDb ? departments : [];
+    const current = (currentSource || []).map((d) => String(d || "").trim());
+    const currentSet = new Set(current.map((d) => d.toLowerCase()));
+    const nextSet = new Set(unique.map((d) => d.toLowerCase()));
+
+    const toAdd = unique.filter((d) => !currentSet.has(d.toLowerCase()));
+    const toRemove = current.filter((d) => !nextSet.has(d.toLowerCase()));
+
+    try {
+      setDepartmentsError("");
+
+      if (toAdd.length) {
+        await supabasePost(
+          "/rest/v1/department_definitions",
+          toAdd.map((name) => ({
+            department_name: name,
+            is_department_active: true,
+            location_id: activeLocationId,
+          }))
+        );
+      }
+
+      for (const name of toRemove) {
+        const encoded = encodeURIComponent(name);
+        await supabaseDelete(
+          `/rest/v1/department_definitions?location_id=eq.${activeLocationId}&department_name=eq.${encoded}`
+        );
+      }
+
+      invalidateMany(["/rest/v1/department_definitions"]);
+      await loadDepartments(true);
+    } catch (e) {
+      const msg = getErrorMessage(e);
+      alert("Failed to save departments:\n" + msg);
+      setDepartmentsError(msg);
+      throw e;
     }
   }
 
@@ -1379,7 +1466,7 @@ export default function App() {
     <div style={S.page}>
       <AppModals
         S={S}
-        departments={DEPARTMENTS}
+        departments={departments}
         addCrewOpen={addCrewOpen}
         closeAddCrew={closeAddCrew}
         addingCrew={addingCrew}
@@ -1463,6 +1550,10 @@ export default function App() {
               crew={crew}
               visibleCrew={visibleCrew}
               crewDepartments={crewDepartments}
+              departments={departments}
+              departmentsLoading={departmentsLoading}
+              departmentsError={departmentsError}
+              saveDepartments={saveDepartments}
               crewLoading={crewLoading}
               crewError={crewError}
               crewNameFilter={crewNameFilter}

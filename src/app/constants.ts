@@ -9,7 +9,7 @@ export const TABS = [
   "planner",
 ] as const;
 
-export const DEPARTMENTS = [
+export const DEFAULT_DEPARTMENTS = [
   "Automation",
   "Carpentry",
   "Video",
@@ -25,6 +25,7 @@ export const DEPARTMENTS = [
 
 export const LOCATION_SCOPED_CACHE_KEYS = [
   "/rest/v1/crew_roster",
+  "/rest/v1/department_definitions",
   "/rest/v1/track_definitions",
   "/rest/v1/training_definitions",
   "/rest/v1/training_groups",
@@ -36,7 +37,7 @@ export const LOCATION_SCOPED_CACHE_KEYS = [
 ] as const;
 
 export type TabId = (typeof TABS)[number];
-export type Dept = (typeof DEPARTMENTS)[number] | "";
+export type Dept = string;
 export type YesNo = "TRUE" | "FALSE";
 export type ReqViewMode = "training" | "track";
 export type ExpiryMode = "NEVER" | "WEEKS";
