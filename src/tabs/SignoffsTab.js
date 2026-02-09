@@ -819,6 +819,7 @@ function SignoffsListTab({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [focus, setFocus] = useState("ALL"); // ALL | TRAINING | NOT | QUALIFIED | INACTIVE
   const [trackViewShowNo, setTrackViewShowNo] = useState(false);
+  const [expandedDept, setExpandedDept] = useState(() => new Set());
 
   const [expandedByView, setExpandedByView] = useState(() => ({
     crew: new Set(),
@@ -951,6 +952,42 @@ function SignoffsListTab({
     return out;
   }, [filteredForView, signoffsViewMode, crew, tracks]);
 
+  const deptGroups = useMemo(() => {
+    if (signoffsViewMode !== "crew") return [];
+    const map = new Map();
+    for (const g of groups) {
+      const crewRow = crewById.get(String(g.key));
+      const dept = prettyDept(crewRow?.dept);
+      if (!map.has(dept)) {
+        map.set(dept, { dept, groups: [], items: [] });
+      }
+      const entry = map.get(dept);
+      entry.groups.push(g);
+      entry.items.push(...g.items);
+    }
+
+    return Array.from(map.values())
+      .map((d) => ({
+        ...d,
+        counts: computeStats(d.items, isQualifiedStatus),
+        crewCount: d.groups.length,
+      }))
+      .sort((a, b) => String(a.dept).localeCompare(String(b.dept)));
+  }, [groups, signoffsViewMode, crewById, isQualifiedStatus]);
+
+  useEffect(() => {
+    if (signoffsViewMode !== "crew") return;
+    setExpandedDept(new Set(deptGroups.map((g) => g.dept)));
+  }, [deptGroups, signoffsViewMode]);
+
+  const toggleDept = useCallback((dept) => {
+    setExpandedDept((prev) => {
+      const next = new Set(prev);
+      next.has(dept) ? next.delete(dept) : next.add(dept);
+      return next;
+    });
+  }, []);
+
   const stickyShell = {
     position: "sticky",
     top: 0,
@@ -996,6 +1033,20 @@ function SignoffsListTab({
     alignItems: "center",
   };
   const panelCell = (span) => ({ gridColumn: `span ${span}`, minWidth: 0 });
+  const deptHeaderStyle = {
+    width: "100%",
+    borderRadius: 16,
+    padding: "10px 12px",
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.04)",
+    color: "rgba(255,255,255,0.88)",
+    fontWeight: 800,
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    cursor: "pointer",
+    transition: "background 160ms ease, border 160ms ease",
+  };
 
   const chips = useMemo(() => {
     const out = [];
@@ -1080,6 +1131,7 @@ function SignoffsListTab({
     setFocus("ALL");
     setTrackViewShowNo(false);
     setFiltersOpen(false);
+    setExpandedDept(new Set());
     setExpandedByView((prev) => ({
       ...prev,
       crew: new Set(),
@@ -1093,11 +1145,17 @@ function SignoffsListTab({
       for (const g of groups) next.add(g.key);
       return next;
     });
-  }, [setExpanded, groups]);
+    if (signoffsViewMode === "crew") {
+      setExpandedDept(new Set(deptGroups.map((g) => g.dept)));
+    }
+  }, [setExpanded, groups, signoffsViewMode, deptGroups]);
 
   const collapseTop = useCallback(() => {
     setExpanded(new Set());
-  }, [setExpanded]);
+    if (signoffsViewMode === "crew") {
+      setExpandedDept(new Set());
+    }
+  }, [setExpanded, signoffsViewMode]);
 
   return (
     <div style={S.card}>
@@ -1293,87 +1351,188 @@ function SignoffsListTab({
 
         {!signoffsLoading && !signoffsError && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {groups.map((g) => {
-              const open = expanded.has(g.key);
-              const counts = computeStats(g.items, isQualifiedStatus);
-
-              const subtitle =
-                signoffsViewMode === "crew"
-                  ? `${counts.qualified} qualified, ${counts.training} training`
-                  : `${counts.qualified} qualified crew, ${counts.training} training crew`;
-
-              return (
-                <div
-                  key={g.key}
-                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
-                >
-                  <GroupHeaderIOS
-                    title={g.title}
-                    subtitle={subtitle}
-                    open={open}
-                    onToggle={() => toggleKey(g.key)}
-                    counts={counts}
-                    accentHex={g.accentHex}
-                  />
-
-                  {open && (
-                    <div
-                      style={{
-                        marginLeft: 16,
-                        padding: 10,
-                        borderRadius: 16,
-                        border: "1px solid rgba(255,255,255,0.10)",
-                        background: "rgba(0,0,0,0.14)",
-                        boxShadow: "0 14px 36px rgba(0,0,0,0.18)",
-                      }}
+            {signoffsViewMode === "crew" ? (
+              deptGroups.map((deptGroup) => {
+                const deptOpen = expandedDept.has(deptGroup.dept);
+                return (
+                  <div
+                    key={deptGroup.dept}
+                    style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleDept(deptGroup.dept)}
+                      style={deptHeaderStyle}
                     >
+                      <span style={{ opacity: 0.7 }}>
+                        {deptOpen ? "v" : ">"}
+                      </span>
+                      {deptGroup.dept}
+                      <span style={{ marginLeft: "auto", opacity: 0.6 }}>
+                        {deptGroup.crewCount}
+                      </span>
+                    </button>
+
+                    {deptOpen && (
                       <div
                         style={{
-                          borderRadius: 14,
-                          overflow: "hidden",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          background: "rgba(0,0,0,0.18)",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 10,
+                          marginLeft: 12,
                         }}
                       >
-                        {g.items.map((row, idx) => {
-                          const primaryTitle =
-                            signoffsViewMode === "crew"
-                              ? row.trackName
-                              : row.crewName;
+                        {deptGroup.groups.map((g) => {
+                          const open = expanded.has(g.key);
+                          const counts = computeStats(g.items, isQualifiedStatus);
 
-                          const secondaryText =
-                            signoffsViewMode === "crew"
-                              ? `Track ID: ${row.trackId}`
-                              : `Crew ID: ${row.crewId}`;
-
-                          const accentHex =
-                            signoffsViewMode === "crew"
-                              ? row.trackColor
-                              : g.accentHex;
+                          const subtitle = `Certified for ${counts.qualified} Tracks, ${counts.training} Training`;
 
                           return (
-                            <SignoffRow
-                              key={row.id}
-                              S={S}
-                              row={row}
-                              primaryTitle={primaryTitle}
-                              secondaryText={secondaryText}
-                              isFirst={idx === 0}
-                              accentHex={accentHex}
-                              onChangeStatus={(next) =>
-                                updateSignoffStatus(row, next)
-                              }
-                            />
+                            <div
+                              key={g.key}
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 10,
+                              }}
+                            >
+                              <GroupHeaderIOS
+                                title={g.title}
+                                subtitle={subtitle}
+                                open={open}
+                                onToggle={() => toggleKey(g.key)}
+                                counts={counts}
+                                accentHex={g.accentHex}
+                              />
+
+                              {open && (
+                                <div
+                                  style={{
+                                    marginLeft: 16,
+                                    padding: 10,
+                                    borderRadius: 16,
+                                    border: "1px solid rgba(255,255,255,0.10)",
+                                    background: "rgba(0,0,0,0.14)",
+                                    boxShadow: "0 14px 36px rgba(0,0,0,0.18)",
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      borderRadius: 14,
+                                      overflow: "hidden",
+                                      border: "1px solid rgba(255,255,255,0.08)",
+                                      background: "rgba(0,0,0,0.18)",
+                                    }}
+                                  >
+                                    {g.items.map((row, idx) => {
+                                      const primaryTitle = row.trackName;
+
+                                      const secondaryText = `Track ID: ${row.trackId}`;
+
+                                      const accentHex = row.trackColor;
+
+                                      return (
+                                        <SignoffRow
+                                          key={row.id}
+                                          S={S}
+                                          row={row}
+                                          primaryTitle={primaryTitle}
+                                          secondaryText={secondaryText}
+                                          isFirst={idx === 0}
+                                          accentHex={accentHex}
+                                          onChangeStatus={(next) =>
+                                            updateSignoffStatus(row, next)
+                                          }
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <>
+                {groups.map((g) => {
+                  const open = expanded.has(g.key);
+                  const counts = computeStats(g.items, isQualifiedStatus);
 
-            {groups.length === 0 && (
+                  const subtitle = `${counts.qualified} qualified crew, ${counts.training} training crew`;
+
+                  return (
+                    <div
+                      key={g.key}
+                      style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                    >
+                      <GroupHeaderIOS
+                        title={g.title}
+                        subtitle={subtitle}
+                        open={open}
+                        onToggle={() => toggleKey(g.key)}
+                        counts={counts}
+                        accentHex={g.accentHex}
+                      />
+
+                      {open && (
+                        <div
+                          style={{
+                            marginLeft: 16,
+                            padding: 10,
+                            borderRadius: 16,
+                            border: "1px solid rgba(255,255,255,0.10)",
+                            background: "rgba(0,0,0,0.14)",
+                            boxShadow: "0 14px 36px rgba(0,0,0,0.18)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              borderRadius: 14,
+                              overflow: "hidden",
+                              border: "1px solid rgba(255,255,255,0.08)",
+                              background: "rgba(0,0,0,0.18)",
+                            }}
+                          >
+                            {g.items.map((row, idx) => {
+                              const primaryTitle = row.crewName;
+
+                              const secondaryText = `Crew ID: ${row.crewId}`;
+
+                              const accentHex = g.accentHex;
+
+                              return (
+                                <SignoffRow
+                                  key={row.id}
+                                  S={S}
+                                  row={row}
+                                  primaryTitle={primaryTitle}
+                                  secondaryText={secondaryText}
+                                  isFirst={idx === 0}
+                                  accentHex={accentHex}
+                                  onChangeStatus={(next) =>
+                                    updateSignoffStatus(row, next)
+                                  }
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+
+            {(signoffsViewMode === "crew"
+              ? deptGroups.length === 0
+              : groups.length === 0) && (
               <div style={{ padding: 18, opacity: 0.75 }}>
                 No signoffs match your filters.
               </div>
