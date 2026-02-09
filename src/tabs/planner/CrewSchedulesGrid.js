@@ -189,7 +189,8 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
   const gridWrap = {
     overflowX: "auto",
     paddingBottom: 6,
-    overscrollBehaviorX: "contain",
+    overflowY: "hidden",
+    WebkitOverflowScrolling: "touch",
   };
   const gridRow = {
     display: "grid",

@@ -1221,7 +1221,7 @@ export default function TrainingsTab({
           <div style={{ minWidth: 220 }}>
             <div style={heroTitle}>Trainings</div>
             <div style={heroSubtitle}>
-              Define trainings and requirements together.
+              Define Trainings and Assign Tracks to Trainings
             </div>
           </div>
 

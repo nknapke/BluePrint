@@ -158,7 +158,7 @@ export default function PlannerTab({
           <div style={{ minWidth: 220 }}>
             <div style={heroTitle}>Training Planner</div>
             <div style={heroSubtitle}>
-              Plan training and manage crew schedules in one place.
+              Weekly Training Schedules and Track Assignments
             </div>
           </div>
 

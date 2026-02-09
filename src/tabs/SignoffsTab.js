@@ -433,7 +433,7 @@ function SignoffsMatrixTab({
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <h2 style={S.cardTitle}>Track Signoffs</h2>
           <div style={S.helper}>
-            Crew on the left, tracks across the top. Click to cycle status.
+            Apply Track Signoffs to Crew Members
           </div>
         </div>
 
@@ -1105,7 +1105,7 @@ function SignoffsListTab({
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <h2 style={S.cardTitle}>Track Signoffs</h2>
           <div style={S.helper}>
-            Manage training and signoff status by crew or track.
+            Apply Track Signoffs to Crew Members
           </div>
         </div>
 

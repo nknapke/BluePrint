@@ -1172,7 +1172,7 @@ export default function RecordsTab({
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <h2 style={S.cardTitle}>Training Records</h2>
           <div style={S.helper}>
-            Training history and recertification tracking.
+            Training History and Recertification Tracking
           </div>
         </div>
 
