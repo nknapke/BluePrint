@@ -137,6 +137,7 @@ function GroupHeader({
 }) {
   const overdue = counts?.overdue ?? 0;
   const due = counts?.due ?? 0;
+  const notCompleted = counts?.notCompleted ?? 0;
   const complete = counts?.complete ?? 0;
   const inactive = counts?.inactive ?? 0;
 
@@ -243,12 +244,17 @@ function GroupHeader({
             title={`Due soon: ${due}`}
           />
           <DotCount
+            color="rgba(175,175,180,0.90)"
+            count={notCompleted}
+            title={`Not completed: ${notCompleted}`}
+          />
+          <DotCount
             color="rgba(52,199,89,0.90)"
             count={complete}
             title={`Complete: ${complete}`}
           />
           <DotCount
-            color="rgba(142,142,147,0.85)"
+            color="rgba(120,120,128,0.70)"
             count={inactive}
             title={`Inactive: ${inactive}`}
           />
@@ -486,6 +492,7 @@ function RecordRow({
 function computeCounts(items) {
   let overdue = 0;
   let due = 0;
+  let notCompleted = 0;
   let complete = 0;
   let inactive = 0;
 
@@ -497,10 +504,11 @@ function computeCounts(items) {
     const s = statusLabel(r);
     if (s === "Overdue") overdue += 1;
     else if (s === "Due soon") due += 1;
+    else if (s === "Not completed") notCompleted += 1;
     else complete += 1;
   }
 
-  return { overdue, due, complete, inactive };
+  return { overdue, due, notCompleted, complete, inactive };
 }
 
 function sortGroupList(groups) {
@@ -508,6 +516,8 @@ function sortGroupList(groups) {
   g.sort((a, b) => {
     if (a.overdue !== b.overdue) return b.overdue - a.overdue;
     if (a.due !== b.due) return b.due - a.due;
+    if (a.notCompleted !== b.notCompleted)
+      return b.notCompleted - a.notCompleted;
     return String(a.title).localeCompare(String(b.title));
   });
   return g;
@@ -603,6 +613,7 @@ function buildHierarchy(records, levels, leafSortTieField) {
           counts,
           overdue: counts.overdue,
           due: counts.due,
+          notCompleted: counts.notCompleted,
           children: [],
           items,
           _allItems: items,
@@ -621,6 +632,7 @@ function buildHierarchy(records, levels, leafSortTieField) {
         counts,
         overdue: counts.overdue,
         due: counts.due,
+        notCompleted: counts.notCompleted,
         children,
         items: null,
         _allItems: allItems,
@@ -766,6 +778,7 @@ export default function RecordsTab({
       const s = statusLabel(r);
       if (statFilter === "OVERDUE") return s === "Overdue";
       if (statFilter === "DUE") return s === "Due soon";
+      if (statFilter === "NOT_COMPLETED") return s === "Not completed";
       if (statFilter === "COMPLETE")
         return s === "Complete" || s === "Never expires";
       return true;
@@ -962,6 +975,7 @@ export default function RecordsTab({
       const map = {
         OVERDUE: "Overdue",
         DUE: "Due soon",
+        NOT_COMPLETED: "Not completed",
         COMPLETE: "Complete",
       };
       chips.push({
@@ -1207,6 +1221,17 @@ export default function RecordsTab({
             selected={statFilter === "COMPLETE"}
             onClick={() =>
               setStatFilter((p) => (p === "COMPLETE" ? "ALL" : "COMPLETE"))
+            }
+          />
+          <StatCard
+            label="Not completed"
+            value={stats.notCompleted}
+            tone="muted"
+            selected={statFilter === "NOT_COMPLETED"}
+            onClick={() =>
+              setStatFilter((p) =>
+                p === "NOT_COMPLETED" ? "ALL" : "NOT_COMPLETED"
+              )
             }
           />
         </div>
