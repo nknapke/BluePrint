@@ -11,7 +11,6 @@ import type {
   TrainingRecord,
 } from "../types/domain";
 import {
-  DEFAULT_DEPARTMENTS,
   type Dept,
   type ExpiryMode,
   type ReqViewMode,
@@ -22,9 +21,7 @@ import {
 export function useAppState() {
   const [activeTab, setActiveTab] = useState<TabId>("crew");
 
-  const [departments, setDepartments] = useState<Department[]>(
-    DEFAULT_DEPARTMENTS.map((name) => ({ id: null, name, active: true }))
-  );
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
   const [departmentsError, setDepartmentsError] = useState("");
   const [departmentsFromDb, setDepartmentsFromDb] = useState(false);
@@ -144,9 +141,7 @@ export function useAppState() {
   // Add Crew Member modal
   const [addCrewOpen, setAddCrewOpen] = useState(false);
   const [newCrewName, setNewCrewName] = useState("");
-  const [newCrewDept, setNewCrewDept] = useState<Dept>(
-    DEFAULT_DEPARTMENTS[0] || ""
-  );
+  const [newCrewDept, setNewCrewDept] = useState<Dept>("");
   const [newCrewStatus, setNewCrewStatus] = useState("Active");
   const [addingCrew, setAddingCrew] = useState(false);
 

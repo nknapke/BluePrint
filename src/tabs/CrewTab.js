@@ -275,6 +275,7 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast, deptOptions }) {
 
 export default function CrewTab({
   S,
+  activeLocationId,
 
   // data
   crew,
@@ -323,6 +324,14 @@ export default function CrewTab({
   const [deptError, setDeptError] = useState("");
   const [deptSaving, setDeptSaving] = useState(false);
   const [editingDeptIdx, setEditingDeptIdx] = useState(null);
+
+  useEffect(() => {
+    setManageOpen(false);
+    setDeptDraft([]);
+    setDeptInput("");
+    setDeptError("");
+    setEditingDeptIdx(null);
+  }, [activeLocationId]);
 
   const baseList = useMemo(() => {
     const list = Array.isArray(visibleCrew) ? visibleCrew : [];
@@ -531,20 +540,12 @@ export default function CrewTab({
       unique.push(row);
     }
 
-    if (!unique.length) {
-      setDeptError("Please keep at least one department.");
-      return null;
-    }
-
     return unique;
   }, [deptDraft]);
 
   const handleSaveDepartments = useCallback(async () => {
     const unique = buildDepartmentList();
-    if (!unique || !unique.length) {
-      setDeptError("Please keep at least one department.");
-      return;
-    }
+    if (!unique) return;
 
     setDeptSaving(true);
     setDeptError("");
@@ -925,12 +926,6 @@ export default function CrewTab({
                       <button
                         style={S.button("danger")}
                         onClick={() => removeDepartment(idx)}
-                        disabled={deptDraft.length <= 1}
-                        title={
-                          deptDraft.length <= 1
-                            ? "Keep at least one department"
-                            : "Remove department"
-                        }
                       >
                         Remove
                       </button>

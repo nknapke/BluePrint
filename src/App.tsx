@@ -281,7 +281,10 @@ export default function App() {
 
   useEffect(() => {
     if (departmentsLoading) return;
-    if (!departmentNames.length) return;
+    if (!departmentNames.length) {
+      if (newCrewDept !== "") setNewCrewDept("");
+      return;
+    }
     if (!departmentNames.includes(newCrewDept)) {
       setNewCrewDept(departmentNames[0] || "");
     }
@@ -633,7 +636,7 @@ export default function App() {
       return;
     }
     const home_department = (newCrewDept || "").trim();
-    if (!home_department) {
+    if (!home_department && departmentNames.length > 0) {
       alert("Department is required.");
       return;
     }
@@ -692,11 +695,6 @@ export default function App() {
 
     if (unique.length !== cleaned.length) {
       alert("Duplicate department names found. Please make them unique.");
-      return;
-    }
-
-    if (!unique.length) {
-      alert("Please keep at least one department.");
       return;
     }
 
@@ -1704,6 +1702,7 @@ export default function App() {
           {activeTab === "crew" && (
             <CrewTab
               S={S}
+              activeLocationId={activeLocationId}
               crew={crew}
               visibleCrew={visibleCrew}
               crewDepartments={crewDepartments}

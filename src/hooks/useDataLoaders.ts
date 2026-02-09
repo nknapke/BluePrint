@@ -12,7 +12,6 @@ import type {
   TrainingRecord,
 } from "../types/domain";
 import { useLocation } from "../context/LocationContext";
-import { DEFAULT_DEPARTMENTS } from "../app/constants";
 
 type SetState<T> = (value: SetStateAction<T>) => void;
 type SetRows<T> = (rows: T[]) => void;
@@ -356,17 +355,8 @@ export function useDataLoaders({
             }))
             .filter((r) => r.name);
 
-          const hasRows = (rows || []).length > 0;
-          const next = hasRows
-            ? cleaned
-            : DEFAULT_DEPARTMENTS.map((name) => ({
-                id: null,
-                name,
-                active: true,
-              }));
-
-          setDepartments(next);
-          setDepartmentsFromDb(hasRows);
+          setDepartments(cleaned);
+          setDepartmentsFromDb(true);
         },
       });
     },

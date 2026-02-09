@@ -57,6 +57,7 @@ export default function AddCrewModal({
                   onChange={(e) => setNewCrewDept(e.target.value)}
                   style={S.select}
                 >
+                  <option value="">No Department</option>
                   {departments.map((d) => (
                     <option key={d} value={d}>
                       {d}
