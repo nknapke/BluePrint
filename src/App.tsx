@@ -37,6 +37,7 @@ import TrainingsTab from "./tabs/TrainingsTab";
 import SignoffsTab from "./tabs/SignoffsTab";
 import RecordsTab from "./tabs/RecordsTab";
 import PlannerTab from "./tabs/PlannerTab";
+import CrewSchedulesTab from "./tabs/CrewSchedulesTab";
 
 const SUPABASE_URL = "https://aoybyypndyvuxxjymkyf.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -480,6 +481,8 @@ export default function App() {
           loadTrainingGroups(true, { silent }),
         ]);
         setPlannerRefreshSignal((v) => v + 1);
+      } else if (activeTab === "crewSchedules") {
+        await Promise.all([loadTracks(true, { silent })]);
       }
 
       markUpdated();
@@ -693,6 +696,10 @@ export default function App() {
           loadTrainingGroups(true),
           loadTrainingRecords(true),
         ]);
+      }
+
+      if (activeTab === "crewSchedules") {
+        await Promise.all([loadTracks(true)]);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1712,6 +1719,7 @@ export default function App() {
     if (key === "signoffs") return "Signoffs";
     if (key === "records") return "Records";
     if (key === "planner") return "Planner";
+    if (key === "crewSchedules") return "Crew Schedules";
     return key;
   };
 
@@ -1991,6 +1999,16 @@ export default function App() {
               trainingGroups={trainingGroups}
               tracks={tracks}
               refreshSignal={plannerRefreshSignal}
+            />
+          )}
+
+          {activeTab === "crewSchedules" && (
+            <CrewSchedulesTab
+              S={S}
+              activeLocationId={activeLocationId}
+              supabaseGet={supabaseGet}
+              supabasePost={supabasePost}
+              tracks={tracks}
             />
           )}
         </div>

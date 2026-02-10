@@ -7,6 +7,7 @@ export const TABS = [
   "signoffs",
   "records",
   "planner",
+  "crewSchedules",
 ] as const;
 
 export const DEFAULT_DEPARTMENTS = [
