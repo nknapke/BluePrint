@@ -1,5 +1,7 @@
 import { useMemo } from "react";
 
+import { hexToRgba, normalizeHex } from "../../utils/colors";
+
 const EMPTY_ARRAY = [];
 
 function prettyDate(iso) {
@@ -32,6 +34,14 @@ export default function CrewSchedulesDayView({
         .sort((a, b) => String(a.name).localeCompare(String(b.name))),
     [tracks]
   );
+  const trackColorById = useMemo(() => {
+    const map = new Map();
+    for (const t of trackOptions) {
+      const hex = normalizeHex(t?.color);
+      if (hex) map.set(Number(t.id), hex);
+    }
+    return map;
+  }, [trackOptions]);
 
   const getTrackId =
     typeof roster?.getTrackId === "function"
@@ -169,6 +179,18 @@ export default function CrewSchedulesDayView({
                 {people.map((c) => {
                   const working = roster.isWorking(dateISO, c.id);
                   const trackId = getTrackId(dateISO, c.id);
+                  const trackHex =
+                    trackId != null && Number.isFinite(trackId)
+                      ? trackColorById.get(Number(trackId)) || ""
+                      : "";
+                  const trackGlow = trackHex
+                    ? {
+                        bg: hexToRgba(trackHex, 0.18),
+                        border: hexToRgba(trackHex, 0.45),
+                        shadow: hexToRgba(trackHex, 0.35),
+                        inset: hexToRgba(trackHex, 0.28),
+                      }
+                    : null;
                   return (
                     <div
                       key={c.id}
@@ -191,11 +213,20 @@ export default function CrewSchedulesDayView({
                         padding: "12px 14px",
                         borderRadius: 14,
                         border: working
-                          ? "1px solid rgba(90,150,255,0.40)"
+                          ? trackGlow
+                            ? `1px solid ${trackGlow.border}`
+                            : "1px solid rgba(90,150,255,0.40)"
                           : "1px solid rgba(255,255,255,0.10)",
                         background: working
-                          ? "linear-gradient(180deg, rgba(90,150,255,0.28) 0%, rgba(90,150,255,0.14) 100%)"
+                          ? trackGlow
+                            ? `linear-gradient(180deg, ${trackGlow.bg} 0%, rgba(255,255,255,0.02) 100%)`
+                            : "linear-gradient(180deg, rgba(90,150,255,0.28) 0%, rgba(90,150,255,0.14) 100%)"
                           : "rgba(255,255,255,0.04)",
+                        boxShadow: working
+                          ? trackGlow
+                            ? `0 0 0 1px ${trackGlow.inset} inset, 0 8px 20px ${trackGlow.shadow}`
+                            : "0 8px 18px rgba(90,150,255,0.18)"
+                          : "none",
                         cursor: savePaused ? "not-allowed" : "pointer",
                         fontWeight: 700,
                         transition:

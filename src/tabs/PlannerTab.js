@@ -175,7 +175,7 @@ export default function PlannerTab({
               onChange={(v) => setPlannerView(v)}
               options={[
                 { value: "training", label: "Training" },
-                { value: "crew", label: "Crew" },
+                { value: "crew", label: "Crew Schedules" },
               ]}
             />
 

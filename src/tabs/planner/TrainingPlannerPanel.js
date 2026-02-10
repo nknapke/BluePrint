@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import ExecuteDayModal from "./ExecuteDayModal";
+import PlannerInfoModal from "./PlannerInfoModal";
 import ReopenDayModal from "./ReopenDayModal";
 
 /* ---------------- helpers ---------------- */
@@ -191,6 +192,9 @@ export default function TrainingPlannerPanel({
   const [executeCompletedOn, setExecuteCompletedOn] = useState("");
   const [executeNotes, setExecuteNotes] = useState("");
   const [executeError, setExecuteError] = useState("");
+
+  /* ---------- info modal ---------- */
+  const [infoOpen, setInfoOpen] = useState(false);
 
   /* ---------- reopen modal ---------- */
   const [reopenOpen, setReopenOpen] = useState(false);
@@ -510,9 +514,14 @@ export default function TrainingPlannerPanel({
               </div>
             </div>
 
-            {days.length ? (
-              <span style={S.badge("info")}>{days.length} days</span>
-            ) : null}
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {days.length ? (
+                <span style={S.badge("info")}>{days.length} days</span>
+              ) : null}
+              <button style={S.button("ghost")} onClick={() => setInfoOpen(true)}>
+                Info
+              </button>
+            </div>
           </div>
 
           {daysLoading && <div style={S.helper}>Loading…</div>}
@@ -921,7 +930,7 @@ export default function TrainingPlannerPanel({
           {selectedDay ? (
             <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
               <button style={S.button("primary")} onClick={() => setExecuteOpen(true)}>
-                Execute day
+                Mark Training Complete
               </button>
               <button style={S.button("ghost")} onClick={() => setReopenOpen(true)}>
                 Reopen day
@@ -949,6 +958,8 @@ export default function TrainingPlannerPanel({
         onConfirm={executeDay}
         onClose={() => setExecuteOpen(false)}
       />
+
+      <PlannerInfoModal S={S} open={infoOpen} onClose={() => setInfoOpen(false)} />
 
       <ReopenDayModal
         S={S}
