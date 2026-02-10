@@ -45,6 +45,29 @@ export function createSupabaseRestClient({
     }
   }
 
+  async function writeJson(
+    method: "POST" | "PATCH",
+    path: string,
+    bodyObj: any,
+    opts: WriteOptions
+  ) {
+    const { headers = {}, prefer = "return=representation" } = opts;
+
+    const res = await fetch(`${supabaseUrl}${path}`, {
+      method,
+      headers: baseHeaders({
+        "Content-Type": "application/json",
+        Prefer: prefer,
+        ...headers,
+      }),
+      body: JSON.stringify(bodyObj),
+    });
+
+    if (!res.ok) throw new Error((await res.text()) || "Request failed");
+
+    return readBody(res);
+  }
+
   async function supabaseGet(path: string, opts: GetOptions = {}) {
     const {
       cacheKey,
@@ -72,42 +95,22 @@ export function createSupabaseRestClient({
     return data;
   }
 
-  async function supabasePatch(path: string, bodyObj: any, opts: WriteOptions = {}) {
-    const { headers = {}, prefer = "return=representation" } = opts;
-
-    const res = await fetch(`${supabaseUrl}${path}`, {
-      method: "PATCH",
-      headers: baseHeaders({
-        "Content-Type": "application/json",
-        Prefer: prefer,
-        ...headers,
-      }),
-      body: JSON.stringify(bodyObj),
-    });
-
-    if (!res.ok) throw new Error((await res.text()) || "Request failed");
-
-    const data = await readBody(res);
+  async function supabasePatch(
+    path: string,
+    bodyObj: any,
+    opts: WriteOptions = {}
+  ) {
+    const data = await writeJson("PATCH", path, bodyObj, opts);
     if (Array.isArray(data)) return data[0] ?? null;
     return data;
   }
 
-  async function supabasePost(path: string, bodyObj: any, opts: WriteOptions = {}) {
-    const { headers = {}, prefer = "return=representation" } = opts;
-
-    const res = await fetch(`${supabaseUrl}${path}`, {
-      method: "POST",
-      headers: baseHeaders({
-        "Content-Type": "application/json",
-        Prefer: prefer,
-        ...headers,
-      }),
-      body: JSON.stringify(bodyObj),
-    });
-
-    if (!res.ok) throw new Error((await res.text()) || "Request failed");
-
-    const data = await readBody(res);
+  async function supabasePost(
+    path: string,
+    bodyObj: any,
+    opts: WriteOptions = {}
+  ) {
+    const data = await writeJson("POST", path, bodyObj, opts);
 
     if (Array.isArray(data)) {
       return Array.isArray(bodyObj) ? data : data[0] ?? null;
