@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import ExecuteDayModal from "./ExecuteDayModal";
 import PlannerInfoModal from "./PlannerInfoModal";
@@ -153,6 +153,7 @@ export default function TrainingPlannerPanel({
   supabasePatch,
   supabasePost,
   trainingGroups = [],
+  refreshSignal = 0,
 }) {
   /* ---------- generate ---------- */
   const [startDate, setStartDate] = useState(() => {
@@ -217,6 +218,70 @@ export default function TrainingPlannerPanel({
 
   /* ---------------- data loading ---------------- */
 
+  const loadDays = useCallback(async () => {
+    if (!planId) return;
+    setDaysLoading(true);
+    setDaysError("");
+
+    try {
+      const rows = await supabaseGet(
+        `/rest/v1/training_plan_days?select=id,plan_date,training_group_id,status,people_affected,extreme_overdue_count,reasoning_summary,required_crew_count,update_crew_count,overdue_crew_count,never_trained_count,extreme_overdue_crew_count,look_ahead_window_days,priority_score,scheduled_crew_count&plan_id=eq.${planId}&order=plan_date.asc`
+      );
+      setDays(rows || []);
+    } catch (e) {
+      setDaysError(String(e?.message || e));
+    } finally {
+      setDaysLoading(false);
+    }
+  }, [planId, supabaseGet]);
+
+  const loadAttendees = useCallback(async () => {
+    if (!selectedDayId) return;
+    setAttendeesLoading(true);
+    setAttendeesError("");
+    setAttendees([]);
+
+    try {
+      const rows = await supabaseGet(
+        `/rest/v1/v_plan_day_effective_attendees?select=attendee_id,crew_id,included,source,track_id,track_name,is_out_of_date,no_prior_training,is_extreme_overdue,simulated_last_completed,actual_last_completed&day_id=eq.${selectedDayId}`
+      );
+
+      const crewIds = rows.map((r) => r.crew_id).join(",");
+      if (!crewIds) {
+        setAttendees([]);
+        return;
+      }
+
+      const crewRows = await supabaseGet(
+        `/rest/v1/crew_roster?select=id,crew_name,status&id=in.(${crewIds})`
+      );
+
+      const crewMap = new Map(crewRows.map((c) => [c.id, c]));
+
+      setAttendees(
+        rows.map((r) => ({
+          rowId: r.attendee_id,
+          crewId: r.crew_id,
+          name: crewMap.get(r.crew_id)?.crew_name || "",
+          crewStatus: crewMap.get(r.crew_id)?.status || "",
+          included: r.included,
+          source: r.source,
+          trackId: r.track_id,
+          trackName: r.track_name || "",
+          isOutOfDate: r.is_out_of_date ?? false,
+          noPriorTraining: r.no_prior_training ?? false,
+          isExtremeOverdue: r.is_extreme_overdue ?? false,
+          simulatedLastCompleted: r.simulated_last_completed || null,
+          actualLastCompleted: r.actual_last_completed || null,
+        }))
+      );
+    } catch (e) {
+      setAttendeesError(String(e?.message || e));
+    } finally {
+      setAttendeesLoading(false);
+    }
+  }, [selectedDayId, supabaseGet]);
+
   async function generatePlan(nextStartDate) {
     if (!locId) return;
 
@@ -248,78 +313,18 @@ export default function TrainingPlannerPanel({
   }
 
   useEffect(() => {
-    if (!planId) return;
-
-    async function loadDays() {
-      setDaysLoading(true);
-      setDaysError("");
-
-      try {
-        const rows = await supabaseGet(
-          `/rest/v1/training_plan_days?select=id,plan_date,training_group_id,status,people_affected,extreme_overdue_count,reasoning_summary,required_crew_count,update_crew_count,overdue_crew_count,never_trained_count,extreme_overdue_crew_count,look_ahead_window_days,priority_score,scheduled_crew_count&plan_id=eq.${planId}&order=plan_date.asc`
-        );
-        setDays(rows || []);
-      } catch (e) {
-        setDaysError(String(e?.message || e));
-      } finally {
-        setDaysLoading(false);
-      }
-    }
-
     loadDays();
-  }, [planId, supabaseGet]);
+  }, [loadDays]);
 
   useEffect(() => {
-    if (!selectedDayId) return;
-
-    async function loadAttendees() {
-      setAttendeesLoading(true);
-      setAttendeesError("");
-      setAttendees([]);
-
-      try {
-        const rows = await supabaseGet(
-          `/rest/v1/v_plan_day_effective_attendees?select=attendee_id,crew_id,included,source,track_id,track_name,is_out_of_date,no_prior_training,is_extreme_overdue,simulated_last_completed,actual_last_completed&day_id=eq.${selectedDayId}`
-        );
-
-        const crewIds = rows.map((r) => r.crew_id).join(",");
-        if (!crewIds) {
-          setAttendees([]);
-          return;
-        }
-
-        const crewRows = await supabaseGet(
-          `/rest/v1/crew_roster?select=id,crew_name,status&id=in.(${crewIds})`
-        );
-
-        const crewMap = new Map(crewRows.map((c) => [c.id, c]));
-
-        setAttendees(
-          rows.map((r) => ({
-            rowId: r.attendee_id,
-            crewId: r.crew_id,
-            name: crewMap.get(r.crew_id)?.crew_name || "",
-            crewStatus: crewMap.get(r.crew_id)?.status || "",
-            included: r.included,
-            source: r.source,
-            trackId: r.track_id,
-            trackName: r.track_name || "",
-            isOutOfDate: r.is_out_of_date ?? false,
-            noPriorTraining: r.no_prior_training ?? false,
-            isExtremeOverdue: r.is_extreme_overdue ?? false,
-            simulatedLastCompleted: r.simulated_last_completed || null,
-            actualLastCompleted: r.actual_last_completed || null,
-          }))
-        );
-      } catch (e) {
-        setAttendeesError(String(e?.message || e));
-      } finally {
-        setAttendeesLoading(false);
-      }
-    }
-
     loadAttendees();
-  }, [selectedDayId, supabaseGet]);
+  }, [loadAttendees]);
+
+  useEffect(() => {
+    if (!refreshSignal) return;
+    if (planId) loadDays();
+    if (selectedDayId) loadAttendees();
+  }, [refreshSignal, planId, selectedDayId, loadDays, loadAttendees]);
 
   /* ---------------- actions ---------------- */
 

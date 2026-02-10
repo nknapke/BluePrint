@@ -20,6 +20,7 @@ export default function PlannerTab({
   supabasePatch,
   trainingGroups = /** @type {import("../types/domain").TrainingGroup[]} */ ([]),
   tracks = /** @type {import("../types/domain").Track[]} */ ([]),
+  refreshSignal = 0,
 }) {
   const locId = activeLocationId ?? locationId ?? null;
 
@@ -212,15 +213,16 @@ export default function PlannerTab({
 
       {/* TRAINING VIEW */}
       {plannerView === "training" ? (
-        <TrainingPlannerPanel
-          S={S}
-          locId={locId}
-          supabaseRpc={supabaseRpc}
-          supabaseGet={supabaseGet}
-          supabasePatch={supabasePatch}
-          supabasePost={supabasePost}
-          trainingGroups={trainingGroups}
-        />
+          <TrainingPlannerPanel
+            S={S}
+            locId={locId}
+            supabaseRpc={supabaseRpc}
+            supabaseGet={supabaseGet}
+            supabasePatch={supabasePatch}
+            supabasePost={supabasePost}
+            trainingGroups={trainingGroups}
+            refreshSignal={refreshSignal}
+          />
       ) : null}
 
       {/* CREW VIEW */}

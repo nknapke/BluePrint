@@ -14,6 +14,7 @@ type Props = {
   locations: LocationRow[];
   locationsLoading: boolean;
   locationsError: string;
+  lastUpdatedLabel?: string;
   tabs: readonly TabId[];
   activeTab: TabId;
   setActiveTab: Dispatch<SetStateAction<TabId>>;
@@ -62,6 +63,7 @@ const LOCATION_ERROR_STYLE: CSSProperties = {
   color: "rgba(255,120,120,0.95)",
   fontSize: 12,
 };
+const LAST_UPDATED_STYLE: CSSProperties = { opacity: 0.6, fontSize: 11 };
 
 export function AppHeader({
   S,
@@ -71,6 +73,7 @@ export function AppHeader({
   locations,
   locationsLoading,
   locationsError,
+  lastUpdatedLabel,
   tabs,
   activeTab,
   setActiveTab,
@@ -111,6 +114,9 @@ export function AppHeader({
           {!!locationsError && (
             <div style={LOCATION_ERROR_STYLE}>{locationsError}</div>
           )}
+          {lastUpdatedLabel ? (
+            <div style={LAST_UPDATED_STYLE}>{lastUpdatedLabel}</div>
+          ) : null}
         </div>
 
         <div style={S.pillBar}>

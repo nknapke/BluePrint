@@ -1,7 +1,7 @@
 // App.tsx
 import blueprintIcon from "./assets/blueprint-icon.png";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createSupabaseRestClient } from "./lib/supabaseRest";
 import { createStyles } from "./components/ui/Styles";
@@ -59,9 +59,25 @@ export default function App() {
   });
 
   const S = useMemo(() => createStyles(), []);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [plannerRefreshSignal, setPlannerRefreshSignal] = useState(0);
 
   useEffect(() => {
     document.title = "BluePrint";
+  }, []);
+
+  const lastUpdatedLabel = useMemo(() => {
+    if (!lastUpdatedAt) return "";
+    const stamp = new Date(lastUpdatedAt);
+    const time = stamp.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    return `Updated ${time}`;
+  }, [lastUpdatedAt]);
+
+  const markUpdated = useCallback(() => {
+    setLastUpdatedAt(Date.now());
   }, []);
 
   // Prevent state updates after unmount
@@ -379,7 +395,6 @@ export default function App() {
     openHistory,
     closeHistory,
     deleteHistoryRow,
-    refreshHistory,
   } = useHistoryModal({
     supabaseGet,
     supabaseDelete,
@@ -405,6 +420,111 @@ export default function App() {
     invalidateMany,
     loadTrainingRecords,
   });
+
+  const autoRefreshBlocked =
+    editingCrewId != null ||
+    editingTrainingId != null ||
+    editingTrackId != null ||
+    addCrewOpen ||
+    addTrainingOpen ||
+    addTrackOpen ||
+    addingCrew ||
+    addingTraining ||
+    addingTrack ||
+    editCrewSaving ||
+    editTrainingSaving ||
+    editTrackSaving ||
+    markCompleteOpen ||
+    markCompleteSaving ||
+    historyOpen;
+
+  const AUTO_REFRESH_MS = 60000;
+  const lastAutoRefreshRef = useRef(0);
+
+  const refreshActiveTab = useCallback(
+    async (opts: { silent?: boolean } = {}) => {
+      if (!activeLocationId) return;
+      const silent = !!opts.silent;
+
+      if (activeTab === "crew") {
+        await Promise.all([
+          loadCrew(true, { silent }),
+          loadDepartments(true, { silent }),
+        ]);
+      } else if (activeTab === "trackDefs") {
+        await loadTracks(true, { silent });
+      } else if (activeTab === "trainingHub") {
+        await Promise.all([
+          loadTrainings(true, { silent }),
+          loadTrainingGroups(true, { silent }),
+          loadTracks(true, { silent }),
+          loadRequirements(true, { silent }),
+        ]);
+      } else if (activeTab === "signoffs") {
+        await Promise.all([
+          loadCrew(true, { silent }),
+          loadTracks(true, { silent }),
+          loadSignoffs(true, { silent }),
+        ]);
+      } else if (activeTab === "records") {
+        await Promise.all([
+          loadCrew(true, { silent }),
+          loadTracks(true, { silent }),
+          loadTrainings(true, { silent }),
+          loadTrainingGroups(true, { silent }),
+          loadTrainingRecords(true, { silent }),
+        ]);
+      } else if (activeTab === "planner") {
+        await Promise.all([
+          loadTracks(true, { silent }),
+          loadTrainingGroups(true, { silent }),
+        ]);
+        setPlannerRefreshSignal((v) => v + 1);
+      }
+
+      markUpdated();
+    },
+    [
+      activeLocationId,
+      activeTab,
+      loadCrew,
+      loadDepartments,
+      loadTracks,
+      loadTrainings,
+      loadTrainingGroups,
+      loadRequirements,
+      loadSignoffs,
+      loadTrainingRecords,
+      markUpdated,
+      setPlannerRefreshSignal,
+    ]
+  );
+
+  const maybeAutoRefresh = useCallback(() => {
+    if (document.visibilityState === "hidden") return;
+    if (autoRefreshBlocked) return;
+    if (!activeLocationId) return;
+
+    const now = Date.now();
+    if (now - lastAutoRefreshRef.current < AUTO_REFRESH_MS) return;
+    lastAutoRefreshRef.current = now;
+
+    void refreshActiveTab({ silent: true });
+  }, [activeLocationId, autoRefreshBlocked, refreshActiveTab]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (!document.hidden) maybeAutoRefresh();
+    };
+
+    window.addEventListener("focus", maybeAutoRefresh);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.removeEventListener("focus", maybeAutoRefresh);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [maybeAutoRefresh]);
 
   function openAddTraining() {
     setNewTrainingId("");
@@ -537,6 +657,7 @@ export default function App() {
         loadSignoffs(true),
         loadTrainingRecords(true),
       ]);
+      markUpdated();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -612,6 +733,7 @@ export default function App() {
         loadSignoffs(true),
         loadTrainingRecords(true),
       ]);
+      markUpdated();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLocationId]);
@@ -1679,7 +1801,6 @@ export default function App() {
         historySubtitle={historySubtitle}
         historyRows={historyRows}
         historyError={historyError}
-        refreshHistory={refreshHistory}
         deleteHistoryRow={deleteHistoryRow}
       />
 
@@ -1692,6 +1813,7 @@ export default function App() {
           locations={locations}
           locationsLoading={locationsLoading}
           locationsError={locationsError}
+          lastUpdatedLabel={lastUpdatedLabel}
           tabs={TABS}
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -1868,6 +1990,7 @@ export default function App() {
               supabasePatch={supabasePatch}
               trainingGroups={trainingGroups}
               tracks={tracks}
+              refreshSignal={plannerRefreshSignal}
             />
           )}
         </div>

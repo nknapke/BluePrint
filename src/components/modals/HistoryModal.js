@@ -50,8 +50,6 @@ export default function HistoryModal({
 
   rows,
   error,
-  onRefresh,
-
   onDeleteRow,
 }) {
   if (!isOpen) return null;
@@ -83,14 +81,6 @@ export default function HistoryModal({
           </div>
 
           <div style={{ display: "flex", gap: 8 }}>
-            <button
-              style={S.button("subtle", isBusy)}
-              disabled={isBusy}
-              onClick={onRefresh}
-              title="Refresh history"
-            >
-              Refresh
-            </button>
             <button
               style={S.button("ghost", isBusy)}
               disabled={isBusy}

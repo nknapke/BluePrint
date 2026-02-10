@@ -477,12 +477,6 @@ export default function RequirementsTab({
     else collapseAllReqTracks();
   }, [requirementsViewMode, collapseAllTrainings, collapseAllReqTracks]);
 
-  const onRefresh = useCallback(async () => {
-    await loadTracks(true);
-    await loadTrainings(true);
-    await loadRequirements(true);
-  }, [loadTracks, loadTrainings, loadRequirements]);
-
   return (
     <div style={S.card}>
       <div style={S.cardHeader}>
@@ -493,15 +487,7 @@ export default function RequirementsTab({
           </div>
         </div>
 
-        <div style={S.row}>
-          <button
-            style={S.button("subtle")}
-            onClick={onRefresh}
-            title="Refresh"
-          >
-            Refresh
-          </button>
-        </div>
+        <div style={S.row} />
       </div>
 
       <div style={S.cardBody}>

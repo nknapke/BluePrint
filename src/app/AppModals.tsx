@@ -72,7 +72,6 @@ type Props = {
   historySubtitle: string;
   historyRows: any[];
   historyError: string;
-  refreshHistory: () => void;
   deleteHistoryRow: (row: any) => void;
 };
 
@@ -141,7 +140,6 @@ export function AppModals({
   historySubtitle,
   historyRows,
   historyError,
-  refreshHistory,
   deleteHistoryRow,
 }: Props) {
   return (
@@ -222,7 +220,6 @@ export function AppModals({
         subtitle={historySubtitle}
         rows={historyRows}
         error={historyError}
-        onRefresh={refreshHistory}
         onDeleteRow={deleteHistoryRow}
       />
     </>

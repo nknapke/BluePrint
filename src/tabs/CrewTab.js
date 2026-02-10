@@ -637,18 +637,6 @@ export default function CrewTab({
           <button style={S.button("subtle")} onClick={openManageDepartments}>
             Manage Departments
           </button>
-
-          <button
-            style={S.button("subtle")}
-            onClick={() => loadCrew(true)}
-            title="Refresh"
-          >
-            Refresh
-          </button>
-
-          <button style={S.button("ghost")} onClick={resetAll}>
-            Reset
-          </button>
         </div>
       </div>
 

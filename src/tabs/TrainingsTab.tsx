@@ -1183,15 +1183,6 @@ export default function TrainingsTab({
     marginBottom: 6,
   };
 
-  const onRefreshAll = useCallback(async () => {
-    await Promise.all([
-      loadTrainings(true),
-      loadTrainingGroups(true),
-      loadTracks(true),
-      loadRequirements(true),
-    ]);
-  }, [loadTrainings, loadTrainingGroups, loadTracks, loadRequirements]);
-
   const canRenderTrainings = !trainingsLoading && !trainingsError;
   const canRenderRequirements =
     !requirementsLoading && !requirementsError && !trainingsError;
@@ -1221,9 +1212,6 @@ export default function TrainingsTab({
             </button>
             <button style={S.button("subtle")} onClick={openGroupsModal}>
               Manage Groups
-            </button>
-            <button style={S.button("subtle")} onClick={onRefreshAll}>
-              Refresh
             </button>
           </div>
         </div>

@@ -31,6 +31,8 @@ type LoadListArgs<Row, Mapped> = {
   silent?: boolean;
 };
 
+type LoadOptions = { silent?: boolean };
+
 type UseDataLoadersParams = {
   supabaseGet: SupabaseGet;
   safeSet: (setter: () => void) => void;
@@ -299,7 +301,7 @@ export function useDataLoaders({
   );
 
   const loadLocations = useCallback(
-    async (force = false) => {
+    async (force = false, opts: LoadOptions = {}) => {
       await loadList({
         key: "locations",
         force,
@@ -320,6 +322,7 @@ export function useDataLoaders({
         },
         useLocationFilter: false,
         useCache: false,
+        silent: opts.silent,
       });
     },
     [
@@ -333,7 +336,7 @@ export function useDataLoaders({
   );
 
   const loadDepartments = useCallback(
-    async (force = false) => {
+    async (force = false, opts: LoadOptions = {}) => {
       await loadList({
         key: "departments",
         force,
@@ -358,6 +361,7 @@ export function useDataLoaders({
           setDepartments(cleaned);
           setDepartmentsFromDb(true);
         },
+        silent: opts.silent,
       });
     },
     [
@@ -370,7 +374,7 @@ export function useDataLoaders({
   );
 
   const loadCrew = useCallback(
-    async (force = false) => {
+    async (force = false, opts: LoadOptions = {}) => {
       await loadList({
         key: "crew",
         force,
@@ -385,13 +389,14 @@ export function useDataLoaders({
           statusRaw: c.status,
         }),
         setRows: setCrew,
+        silent: opts.silent,
       });
     },
     [loadList, setCrew, setCrewError, setCrewLoading]
   );
 
   const loadTracks = useCallback(
-    async (force = false) => {
+    async (force = false, opts: LoadOptions = {}) => {
       await loadList({
         key: "trackDefs",
         force,
@@ -406,13 +411,14 @@ export function useDataLoaders({
           color: (t.track_color || "").trim(),
         }),
         setRows: setTracks,
+        silent: opts.silent,
       });
     },
     [loadList, setTracks, setTracksError, setTracksLoading]
   );
 
   const loadTrainingGroups = useCallback(
-    async (force = false) => {
+    async (force = false, opts: LoadOptions = {}) => {
       await loadList({
         key: "trainingGroups",
         force,
@@ -429,6 +435,7 @@ export function useDataLoaders({
           description: (g.description || "").trim(),
         }),
         setRows: setTrainingGroups,
+        silent: opts.silent,
       });
     },
     [
@@ -440,7 +447,7 @@ export function useDataLoaders({
   );
 
   const loadTrainings = useCallback(
-    async (force = false) => {
+    async (force = false, opts: LoadOptions = {}) => {
       await loadList({
         key: "trainingDefs",
         force,
@@ -460,13 +467,14 @@ export function useDataLoaders({
             t.training_group_id == null ? null : Number(t.training_group_id),
         }),
         setRows: setTrainings,
+        silent: opts.silent,
       });
     },
     [loadList, setTrainings, setTrainingsError, setTrainingsLoading]
   );
 
   const loadRequirements = useCallback(
-    async (force = false) => {
+    async (force = false, opts: LoadOptions = {}) => {
       await loadList({
         key: "requirements",
         force,
@@ -480,6 +488,7 @@ export function useDataLoaders({
           active: r.is_requirement_active ?? null,
         }),
         setRows: setRequirements,
+        silent: opts.silent,
       });
     },
     [loadList, setRequirements, setRequirementsError, setRequirementsLoading]

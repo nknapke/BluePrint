@@ -426,13 +426,6 @@ function SignoffsMatrixTab({
     return map;
   }, [signoffs]);
 
-  const resetFilters = useCallback(() => {
-    setSignoffsCrewId("ALL");
-    setSignoffsTrackId("ALL");
-    setSignoffsStatusFilter("ALL");
-    setQ("");
-  }, [setSignoffsCrewId, setSignoffsTrackId, setSignoffsStatusFilter]);
-
   const gridTemplate = `260px repeat(${trackList.length}, minmax(120px, 1fr))`;
 
   const headerBg = "rgba(18,20,28,0.98)";
@@ -449,12 +442,6 @@ function SignoffsMatrixTab({
         </div>
 
         <div style={S.row}>
-          <button style={S.button("subtle")} onClick={() => loadSignoffs(true)}>
-            Refresh
-          </button>
-          <button style={S.button("ghost")} onClick={resetFilters}>
-            Reset
-          </button>
           <Segmented
             value={viewMode}
             onChange={(v) => setViewMode(v)}
@@ -1180,12 +1167,6 @@ function SignoffsListTab({
         </div>
 
         <div style={S.row}>
-          <button style={S.button("subtle")} onClick={() => loadSignoffs(true)}>
-            Refresh
-          </button>
-          <button style={S.button("ghost")} onClick={clearAll}>
-            Reset
-          </button>
           <Segmented
             value={viewMode}
             onChange={(v) => setViewMode(v)}

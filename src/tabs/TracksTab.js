@@ -386,11 +386,6 @@ export default function TracksTab({
     return sorted;
   }, [baseList, showInactive, sortByNameThenId]);
 
-  const resetAll = useCallback(() => {
-    setQ("");
-    setShowInactive(false);
-  }, []);
-
   const stickyShell = {
     position: "sticky",
     top: 0,
@@ -447,18 +442,6 @@ export default function TracksTab({
         <div style={S.row}>
           <button style={S.button("primary")} onClick={openAddTrack}>
             Add Track
-          </button>
-
-          <button
-            style={S.button("subtle")}
-            onClick={() => loadTracks(true)}
-            title="Refresh"
-          >
-            Refresh
-          </button>
-
-          <button style={S.button("ghost")} onClick={resetAll}>
-            Reset
           </button>
         </div>
       </div>

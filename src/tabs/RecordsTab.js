@@ -1182,15 +1182,6 @@ export default function RecordsTab({
         </div>
 
         <div style={S.row}>
-          <button
-            style={S.button("subtle")}
-            onClick={() => loadTrainingRecords(true)}
-          >
-            Refresh
-          </button>
-          <button style={S.button("ghost")} onClick={resetAll}>
-            Reset
-          </button>
         </div>
       </div>
 
