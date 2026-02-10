@@ -1,20 +1,12 @@
 // src/components/modals/HistoryModal.js
+import { formatTimestampShort } from "../../utils/dates";
 
-function fmtLogged(ts) {
+function formatLoggedLabel(ts) {
   if (!ts) return "";
-  const d = new Date(ts);
-  if (!Number.isFinite(d.getTime())) return String(ts);
-
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return `Logged ${formatTimestampShort(ts)}`;
 }
 
-function fmtDate(yyyyMmDd) {
+function formatCompletedDate(yyyyMmDd) {
   if (!yyyyMmDd) return "—";
   const d = new Date(`${yyyyMmDd}T00:00:00`);
   if (!Number.isFinite(d.getTime())) return String(yyyyMmDd);
@@ -128,8 +120,8 @@ export default function HistoryModal({
           {!error && rows && rows.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {rows.map((h, idx) => {
-                const completed = fmtDate(h.completed_on);
-                const logged = fmtLogged(h.created_at);
+                const completed = formatCompletedDate(h.completed_on);
+                const logged = formatLoggedLabel(h.created_at);
                 const by = (h.completed_by || "").trim();
                 const notes = (h.notes || "").trim();
 
@@ -174,7 +166,7 @@ export default function HistoryModal({
                             opacity: 0.65,
                           }}
                         >
-                          {logged ? `Logged ${logged}` : ""}
+                          {logged}
                         </div>
                       </div>
 

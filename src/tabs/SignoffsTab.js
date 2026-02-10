@@ -197,17 +197,18 @@ function SignoffRow({
       : "transparent";
   };
 
+  const isInteractiveTarget = (e) =>
+    e.target.closest("select") ||
+    e.target.closest("button") ||
+    e.target.closest("input");
+
   const pressOn = (e) => {
-    if (e.target.closest("select")) return;
-    if (e.target.closest("button")) return;
-    if (e.target.closest("input")) return;
+    if (isInteractiveTarget(e)) return;
     e.currentTarget.style.transform = "translateY(0px) scale(0.995)";
   };
 
   const pressOff = (e) => {
-    if (e.target.closest("select")) return;
-    if (e.target.closest("button")) return;
-    if (e.target.closest("input")) return;
+    if (isInteractiveTarget(e)) return;
     e.currentTarget.style.transform = "translateY(-1px)";
   };
 

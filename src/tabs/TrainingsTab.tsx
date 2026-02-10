@@ -6,7 +6,7 @@ import { Chevron } from "../components/ui/Chevron";
 import { DotCount } from "../components/ui/DotCount";
 import { FieldLabel } from "../components/ui/FieldLabel";
 import { useExpandableKeys } from "../hooks/useExpandableKeys";
-import { hexToRgba, normalizeHex } from "../utils/colors";
+import { buildTrackColorMap, hexToRgba } from "../utils/colors";
 import type { ReqViewMode, YesNo } from "../app/constants";
 import type { Requirement, Track, Training, TrainingGroup } from "../types/domain";
 
@@ -213,25 +213,24 @@ function TrainingRowCard({
     e.currentTarget.style.background = selectedBg;
   };
 
+  const isInteractiveTarget = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return false;
+    return (
+      target.closest("button") ||
+      target.closest("input") ||
+      target.closest("select") ||
+      target.closest("label") ||
+      target.closest("textarea")
+    );
+  };
+
   const pressOn = (e: MouseEvent<HTMLDivElement>) => {
-    if (e.target instanceof HTMLElement) {
-      if (e.target.closest("button")) return;
-      if (e.target.closest("input")) return;
-      if (e.target.closest("select")) return;
-      if (e.target.closest("label")) return;
-      if (e.target.closest("textarea")) return;
-    }
+    if (isInteractiveTarget(e.target)) return;
     e.currentTarget.style.transform = "translateY(0px) scale(0.995)";
   };
 
   const pressOff = (e: MouseEvent<HTMLDivElement>) => {
-    if (e.target instanceof HTMLElement) {
-      if (e.target.closest("button")) return;
-      if (e.target.closest("input")) return;
-      if (e.target.closest("select")) return;
-      if (e.target.closest("label")) return;
-      if (e.target.closest("textarea")) return;
-    }
+    if (isInteractiveTarget(e.target)) return;
     e.currentTarget.style.transform = "translateY(-1px)";
   };
 
@@ -239,13 +238,7 @@ function TrainingRowCard({
 
   const handleSelect = (e: MouseEvent<HTMLDivElement>) => {
     if (isEditing) return;
-    if (e.target instanceof HTMLElement) {
-      if (e.target.closest("button")) return;
-      if (e.target.closest("input")) return;
-      if (e.target.closest("select")) return;
-      if (e.target.closest("label")) return;
-      if (e.target.closest("textarea")) return;
-    }
+    if (isInteractiveTarget(e.target)) return;
     onSelect();
   };
 
@@ -503,21 +496,24 @@ function RequirementRowCard({
     e.currentTarget.style.background = "transparent";
   };
 
+  const isInteractiveTarget = (target: any) => {
+    if (!(target instanceof HTMLElement)) return false;
+    return (
+      target.closest("button") ||
+      target.closest("input") ||
+      target.closest("select") ||
+      target.closest("textarea") ||
+      target.closest("label")
+    );
+  };
+
   const pressOn = (e: any) => {
-    if (e.target.closest("button")) return;
-    if (e.target.closest("input")) return;
-    if (e.target.closest("select")) return;
-    if (e.target.closest("textarea")) return;
-    if (e.target.closest("label")) return;
+    if (isInteractiveTarget(e.target)) return;
     e.currentTarget.style.transform = "translateY(0px) scale(0.995)";
   };
 
   const pressOff = (e: any) => {
-    if (e.target.closest("button")) return;
-    if (e.target.closest("input")) return;
-    if (e.target.closest("select")) return;
-    if (e.target.closest("textarea")) return;
-    if (e.target.closest("label")) return;
+    if (isInteractiveTarget(e.target)) return;
     e.currentTarget.style.transform = "translateY(-1px)";
   };
 
@@ -1044,13 +1040,7 @@ export default function TrainingsTab({
     expand.resetToDefault();
   }, [expand]);
 
-  const trackColorById = useMemo(() => {
-    const map = new Map();
-    for (const t of tracks || []) {
-      map.set(String(t.id), normalizeHex(t.color || ""));
-    }
-    return map;
-  }, [tracks]);
+  const trackColorById = useMemo(() => buildTrackColorMap(tracks), [tracks]);
 
   const trainingReqGroup = useMemo(() => {
     if (!selectedTrainingId) return null;

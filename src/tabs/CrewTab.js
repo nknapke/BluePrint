@@ -111,17 +111,18 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast, deptOptions }) {
     e.currentTarget.style.background = "transparent";
   };
 
+  const isInteractiveTarget = (e) =>
+    e.target.closest("button") ||
+    e.target.closest("input") ||
+    e.target.closest("select");
+
   const pressOn = (e) => {
-    if (e.target.closest("button")) return;
-    if (e.target.closest("input")) return;
-    if (e.target.closest("select")) return;
+    if (isInteractiveTarget(e)) return;
     e.currentTarget.style.transform = "translateY(0px) scale(0.995)";
   };
 
   const pressOff = (e) => {
-    if (e.target.closest("button")) return;
-    if (e.target.closest("input")) return;
-    if (e.target.closest("select")) return;
+    if (isInteractiveTarget(e)) return;
     e.currentTarget.style.transform = "translateY(-1px)";
   };
 

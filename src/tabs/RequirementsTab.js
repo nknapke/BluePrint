@@ -4,7 +4,7 @@ import { Chevron } from "../components/ui/Chevron";
 import { DotCount } from "../components/ui/DotCount";
 import { FieldLabel } from "../components/ui/FieldLabel";
 import { Segmented } from "../components/ui/Segmented";
-import { hexToRgba, normalizeHex } from "../utils/colors";
+import { buildTrackColorMap, hexToRgba } from "../utils/colors";
 
 function GroupHeaderIOS({
   title,
@@ -158,21 +158,20 @@ function RequirementRowCard({
     e.currentTarget.style.background = "transparent";
   };
 
+  const isInteractiveTarget = (e) =>
+    e.target.closest("button") ||
+    e.target.closest("input") ||
+    e.target.closest("select") ||
+    e.target.closest("textarea") ||
+    e.target.closest("label");
+
   const pressOn = (e) => {
-    if (e.target.closest("button")) return;
-    if (e.target.closest("input")) return;
-    if (e.target.closest("select")) return;
-    if (e.target.closest("textarea")) return;
-    if (e.target.closest("label")) return;
+    if (isInteractiveTarget(e)) return;
     e.currentTarget.style.transform = "translateY(0px) scale(0.995)";
   };
 
   const pressOff = (e) => {
-    if (e.target.closest("button")) return;
-    if (e.target.closest("input")) return;
-    if (e.target.closest("select")) return;
-    if (e.target.closest("textarea")) return;
-    if (e.target.closest("label")) return;
+    if (isInteractiveTarget(e)) return;
     e.currentTarget.style.transform = "translateY(-1px)";
   };
 
@@ -416,13 +415,7 @@ export default function RequirementsTab({
     boxShadow: "0 16px 44px rgba(0,0,0,0.18)",
   };
 
-  const trackColorById = useMemo(() => {
-    const map = new Map();
-    for (const t of tracks || []) {
-      map.set(String(t.id), normalizeHex(t.color || ""));
-    }
-    return map;
-  }, [tracks]);
+  const trackColorById = useMemo(() => buildTrackColorMap(tracks), [tracks]);
 
   const filteredGroups = useMemo(() => {
     const query = (q || "").trim().toLowerCase();

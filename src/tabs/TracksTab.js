@@ -108,6 +108,11 @@ function TrackRowCard({
   const [hovered, setHovered] = useState(false);
 
   const stop = (e) => e.stopPropagation();
+  const isInteractiveTarget = (e) =>
+    e.target.closest("button") ||
+    e.target.closest("input") ||
+    e.target.closest("select") ||
+    e.target.closest("label");
 
   const hoverOn = (e) => {
     setHovered(true);
@@ -124,18 +129,12 @@ function TrackRowCard({
   };
 
   const pressOn = (e) => {
-    if (e.target.closest("button")) return;
-    if (e.target.closest("input")) return;
-    if (e.target.closest("select")) return;
-    if (e.target.closest("label")) return;
+    if (isInteractiveTarget(e)) return;
     e.currentTarget.style.transform = "translateY(0px) scale(0.995)";
   };
 
   const pressOff = (e) => {
-    if (e.target.closest("button")) return;
-    if (e.target.closest("input")) return;
-    if (e.target.closest("select")) return;
-    if (e.target.closest("label")) return;
+    if (isInteractiveTarget(e)) return;
     e.currentTarget.style.transform = "translateY(-1px)";
   };
 

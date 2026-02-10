@@ -54,50 +54,52 @@ function rankRecord(r) {
 
 /** ----------------------------- UI bits ----------------------------- */
 
-function Pill({ tone, text }) {
-  const base = {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "6px 10px",
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 750,
-    letterSpacing: "-0.01em",
+const PILL_BASE = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "6px 10px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 750,
+  letterSpacing: "-0.01em",
+  border: "1px solid rgba(255,255,255,0.10)",
+  userSelect: "none",
+  whiteSpace: "nowrap",
+};
+
+const PILL_TONES = {
+  danger: {
+    background: "rgba(255, 59, 48, 0.14)",
+    color: "rgba(255,210,208,0.95)",
+    border: "1px solid rgba(255,59,48,0.28)",
+  },
+  warn: {
+    background: "rgba(255, 204, 0, 0.12)",
+    color: "rgba(255,240,200,0.95)",
+    border: "1px solid rgba(255,204,0,0.30)",
+  },
+  good: {
+    background: "rgba(52,199,89,0.12)",
+    color: "rgba(214,255,226,0.95)",
+    border: "1px solid rgba(52,199,89,0.30)",
+  },
+  muted: {
+    background: "rgba(255,255,255,0.06)",
+    color: "rgba(255,255,255,0.82)",
     border: "1px solid rgba(255,255,255,0.10)",
-    userSelect: "none",
-    whiteSpace: "nowrap",
-  };
+  },
+  muted2: {
+    background: "rgba(255,255,255,0.04)",
+    color: "rgba(255,255,255,0.72)",
+    border: "1px solid rgba(255,255,255,0.10)",
+  },
+};
 
-  const tones = {
-    danger: {
-      background: "rgba(255, 59, 48, 0.14)",
-      color: "rgba(255,210,208,0.95)",
-      border: "1px solid rgba(255,59,48,0.28)",
-    },
-    warn: {
-      background: "rgba(255, 204, 0, 0.12)",
-      color: "rgba(255,240,200,0.95)",
-      border: "1px solid rgba(255,204,0,0.30)",
-    },
-    good: {
-      background: "rgba(52,199,89,0.12)",
-      color: "rgba(214,255,226,0.95)",
-      border: "1px solid rgba(52,199,89,0.30)",
-    },
-    muted: {
-      background: "rgba(255,255,255,0.06)",
-      color: "rgba(255,255,255,0.82)",
-      border: "1px solid rgba(255,255,255,0.10)",
-    },
-    muted2: {
-      background: "rgba(255,255,255,0.04)",
-      color: "rgba(255,255,255,0.72)",
-      border: "1px solid rgba(255,255,255,0.10)",
-    },
-  };
-
+function Pill({ tone, text }) {
   return (
-    <span style={{ ...base, ...(tones[tone] || tones.muted) }}>{text}</span>
+    <span style={{ ...PILL_BASE, ...(PILL_TONES[tone] || PILL_TONES.muted) }}>
+      {text}
+    </span>
   );
 }
 

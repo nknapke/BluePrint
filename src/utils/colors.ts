@@ -37,3 +37,13 @@ export function trackGlowFromHex(hex?: string | null): TrackGlow | null {
     inset: hexToRgba(normalized, 0.28),
   };
 }
+
+export function buildTrackColorMap<
+  T extends { id?: string | number | null; color?: string | null }
+>(tracks?: T[] | null): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const t of tracks || []) {
+    map.set(String(t.id), normalizeHex(t.color || ""));
+  }
+  return map;
+}

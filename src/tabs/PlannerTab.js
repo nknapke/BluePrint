@@ -6,16 +6,7 @@ import useRosterData from "./planner/useRosterData";
 import CrewSchedulesGrid from "./planner/CrewSchedulesGrid";
 import CrewSchedulesDayView from "./planner/CrewSchedulesDayView";
 import TrainingPlannerPanel from "./planner/TrainingPlannerPanel";
-
-/* ---------------- helpers ---------------- */
-
-function fmtDateISO(d) {
-  const x = new Date(d);
-  const y = x.getFullYear();
-  const m = String(x.getMonth() + 1).padStart(2, "0");
-  const day = String(x.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+import { isoDate } from "../utils/dates";
 
 /* ---------------- PlannerTab ---------------- */
 
@@ -74,14 +65,14 @@ export default function PlannerTab({
 
   function dayMinus1(iso) {
     if (!iso) return "";
-    return fmtDateISO(
+    return isoDate(
       new Date(new Date(`${iso}T00:00:00`).getTime() - 86400000)
     );
   }
 
   function dayPlus1(iso) {
     if (!iso) return "";
-    return fmtDateISO(
+    return isoDate(
       new Date(new Date(`${iso}T00:00:00`).getTime() + 86400000)
     );
   }

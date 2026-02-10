@@ -3,34 +3,16 @@ import { useEffect, useMemo, useState } from "react";
 import ExecuteDayModal from "./ExecuteDayModal";
 import PlannerInfoModal from "./PlannerInfoModal";
 import ReopenDayModal from "./ReopenDayModal";
+import {
+  formatShortDate,
+  formatShortWeekdayDate,
+  isoDate,
+} from "../../utils/dates";
 
 /* ---------------- helpers ---------------- */
 
-function prettyDate(iso) {
-  if (!iso) return "";
-  const d = new Date(`${iso}T00:00:00`);
-  return d.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function shortDate(iso) {
-  if (!iso) return "";
-  const d = new Date(`${iso}T00:00:00`);
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
-
 function todayLocalISO() {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  return isoDate(new Date());
 }
 
 function clampText(s, n = 180) {
@@ -70,7 +52,7 @@ function buildCompletionLabel(simDate, actualDate) {
       ? true
       : simTime > actualTime;
   const prefix = isPredictive ? "Will be Completed on" : "Last Completed";
-  return `Up to Date — ${prefix} ${shortDate(simDate)}`;
+  return `Up to Date — ${prefix} ${formatShortDate(simDate)}`;
 }
 
 function buildAttendeeReasonLines(attendee) {
@@ -627,7 +609,7 @@ export default function TrainingPlannerPanel({
                           color: "rgba(255,255,255,0.92)",
                         }}
                       >
-                        {prettyDate(d.plan_date)}
+                        {formatShortWeekdayDate(d.plan_date)}
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <span style={requirementStyle}>
@@ -750,7 +732,9 @@ export default function TrainingPlannerPanel({
           >
             <div>
               <div style={sectionTitle}>
-                {selectedDay ? prettyDate(selectedDay.plan_date) : "Attendees"}
+                {selectedDay
+                  ? formatShortWeekdayDate(selectedDay.plan_date)
+                  : "Attendees"}
               </div>
               <div style={sectionSub}>
                 {selectedDay ? "" : "Select a day to view attendees."}
