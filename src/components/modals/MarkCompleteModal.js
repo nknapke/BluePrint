@@ -1,3 +1,59 @@
+const FALLBACK_OVERLAY_STYLE = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0,0,0,0.55)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 16,
+  zIndex: 1000,
+};
+
+const FALLBACK_MODAL_STYLE = {
+  width: "min(640px, 100%)",
+  borderRadius: 16,
+  background: "rgba(20,20,22,0.98)",
+  border: "1px solid rgba(255,255,255,0.10)",
+  boxShadow: "0 20px 60px rgba(0,0,0,0.55)",
+  overflow: "hidden",
+};
+
+const FALLBACK_HEADER_STYLE = {
+  padding: 16,
+  borderBottom: "1px solid rgba(255,255,255,0.08)",
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: 12,
+};
+
+const FALLBACK_BODY_STYLE = {
+  padding: 16,
+  display: "flex",
+  flexDirection: "column",
+  gap: 12,
+};
+
+const FALLBACK_FOOTER_STYLE = {
+  padding: 16,
+  borderTop: "1px solid rgba(255,255,255,0.08)",
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: 10,
+};
+
+const FALLBACK_LABEL_STYLE = { fontSize: 12, opacity: 0.75 };
+
+const FALLBACK_INPUT_STYLE = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 12,
+  border: "1px solid rgba(255,255,255,0.12)",
+  background: "rgba(255,255,255,0.06)",
+  color: "white",
+  outline: "none",
+};
+
 export default function MarkCompleteModal({
   S,
   isOpen,
@@ -22,61 +78,13 @@ export default function MarkCompleteModal({
 }) {
   if (!isOpen) return null;
 
-  const overlayStyle = S.modalOverlay || {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.55)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-    zIndex: 1000,
-  };
-
-  const modalStyle = S.modalCard || {
-    width: "min(640px, 100%)",
-    borderRadius: 16,
-    background: "rgba(20,20,22,0.98)",
-    border: "1px solid rgba(255,255,255,0.10)",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.55)",
-    overflow: "hidden",
-  };
-
-  const headerStyle = S.modalHeader || {
-    padding: 16,
-    borderBottom: "1px solid rgba(255,255,255,0.08)",
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 12,
-  };
-
-  const bodyStyle = S.modalBody || {
-    padding: 16,
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-  };
-
-  const footerStyle = S.modalFooter || {
-    padding: 16,
-    borderTop: "1px solid rgba(255,255,255,0.08)",
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: 10,
-  };
-
-  const labelStyle = S.mini || { fontSize: 12, opacity: 0.75 };
-
-  const inputStyle = S.input || {
-    width: "100%",
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.06)",
-    color: "white",
-    outline: "none",
-  };
+  const overlayStyle = S.modalOverlay || FALLBACK_OVERLAY_STYLE;
+  const modalStyle = S.modalCard || FALLBACK_MODAL_STYLE;
+  const headerStyle = S.modalHeader || FALLBACK_HEADER_STYLE;
+  const bodyStyle = S.modalBody || FALLBACK_BODY_STYLE;
+  const footerStyle = S.modalFooter || FALLBACK_FOOTER_STYLE;
+  const labelStyle = S.mini || FALLBACK_LABEL_STYLE;
+  const inputStyle = S.input || FALLBACK_INPUT_STYLE;
 
   const textAreaStyle = {
     ...inputStyle,

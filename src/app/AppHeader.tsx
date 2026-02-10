@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import type { CSSProperties, Dispatch, SetStateAction } from "react";
 import type { TabId } from "./constants";
 
 type LocationRow = {
@@ -20,6 +20,49 @@ type Props = {
   tabLabel: (key: TabId) => string;
 };
 
+const LOGO_WRAPPER_STYLE: CSSProperties = {
+  height: 68,
+  padding: "0 14px",
+  borderRadius: 14,
+  background:
+    "linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.54) 100%)",
+  border: "1px solid rgba(255,255,255,0.10)",
+  boxShadow:
+    "0 3px 8px rgba(0,0,0,0.20), inset 0 -1px 0 rgba(255,255,255,0.0)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flex: "0 0 auto",
+  flexShrink: 0,
+};
+
+const LOGO_IMAGE_STYLE: CSSProperties = {
+  height: 54,
+  maxWidth: 190,
+  objectFit: "contain",
+  display: "block",
+};
+
+const LOCATION_ROW_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+};
+const LOCATION_LABEL_STYLE: CSSProperties = { opacity: 0.85, fontSize: 13 };
+const LOCATION_SELECT_STYLE: CSSProperties = {
+  height: 36,
+  borderRadius: 10,
+  padding: "0 10px",
+  background: "rgba(255,255,255,0.08)",
+  color: "white",
+  border: "1px solid rgba(255,255,255,0.12)",
+  outline: "none",
+};
+const LOCATION_ERROR_STYLE: CSSProperties = {
+  color: "rgba(255,120,120,0.95)",
+  fontSize: 12,
+};
+
 export function AppHeader({
   S,
   blueprintIcon,
@@ -38,52 +81,25 @@ export function AppHeader({
       <div style={S.headerRow}>
         <div style={S.titleBlock}>
           <div
-            style={{
-              height: 68,
-              padding: "0 14px",
-              borderRadius: 14,
-              background:
-                "linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.54) 100%)",
-              border: "1px solid rgba(255,255,255,0.10)",
-              boxShadow:
-                "0 3px 8px rgba(0,0,0,0.20), inset 0 -1px 0 rgba(255,255,255,0.0)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flex: "0 0 auto",
-              flexShrink: 0,
-            }}
+            style={LOGO_WRAPPER_STYLE}
             title="BluePrint"
           >
             <img
               src={blueprintIcon}
               alt="BluePrint"
-              style={{
-                height: 54,
-                maxWidth: 190,
-                objectFit: "contain",
-                display: "block",
-              }}
+              style={LOGO_IMAGE_STYLE}
             />
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ opacity: 0.85, fontSize: 13 }}>Location</div>
+        <div style={LOCATION_ROW_STYLE}>
+          <div style={LOCATION_LABEL_STYLE}>Location</div>
 
           <select
             value={activeLocationId ?? ""}
             onChange={(e) => setActiveLocationId(Number(e.target.value))}
             disabled={locationsLoading || !locations.length}
-            style={{
-              height: 36,
-              borderRadius: 10,
-              padding: "0 10px",
-              background: "rgba(255,255,255,0.08)",
-              color: "white",
-              border: "1px solid rgba(255,255,255,0.12)",
-              outline: "none",
-            }}
+            style={LOCATION_SELECT_STYLE}
           >
             {locations.map((l) => (
               <option key={l.id} value={l.id} style={{ color: "black" }}>
@@ -93,9 +109,7 @@ export function AppHeader({
           </select>
 
           {!!locationsError && (
-            <div style={{ color: "rgba(255,120,120,0.95)", fontSize: 12 }}>
-              {locationsError}
-            </div>
+            <div style={LOCATION_ERROR_STYLE}>{locationsError}</div>
           )}
         </div>
 
