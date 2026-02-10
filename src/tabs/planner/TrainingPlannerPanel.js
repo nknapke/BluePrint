@@ -179,11 +179,13 @@ export default function TrainingPlannerPanel({
   /* ---------- execute modal ---------- */
   const [executeOpen, setExecuteOpen] = useState(false);
   const [executeBusy, setExecuteBusy] = useState(false);
-  const [executeConfirmed, setExecuteConfirmed] = useState(false);
   const [executeCompletedBy, setExecuteCompletedBy] = useState("");
   const [executeCompletedOn, setExecuteCompletedOn] = useState("");
   const [executeNotes, setExecuteNotes] = useState("");
   const [executeError, setExecuteError] = useState("");
+  const [executeRows, setExecuteRows] = useState([]);
+  const [executeRowsLoading, setExecuteRowsLoading] = useState(false);
+  const [executeRowsError, setExecuteRowsError] = useState("");
 
   /* ---------- info modal ---------- */
   const [infoOpen, setInfoOpen] = useState(false);
@@ -282,6 +284,23 @@ export default function TrainingPlannerPanel({
     }
   }, [selectedDayId, supabaseGet]);
 
+  const loadExecuteRows = useCallback(async () => {
+    if (!selectedDayId) return;
+    setExecuteRowsLoading(true);
+    setExecuteRowsError("");
+
+    try {
+      const rows = await supabaseGet(
+        `/rest/v1/v_plan_day_attendee_review?select=attendee_id,crew_id,crew_name,crew_status,included,source,is_working,track_id,track_name,is_out_of_date,no_prior_training,is_extreme_overdue,simulated_last_completed,actual_last_completed&day_id=eq.${selectedDayId}&order=crew_name.asc`
+      );
+      setExecuteRows(rows || []);
+    } catch (e) {
+      setExecuteRowsError(String(e?.message || e));
+    } finally {
+      setExecuteRowsLoading(false);
+    }
+  }, [selectedDayId, supabaseGet]);
+
   async function generatePlan(nextStartDate) {
     if (!locId) return;
 
@@ -321,6 +340,18 @@ export default function TrainingPlannerPanel({
   }, [loadAttendees]);
 
   useEffect(() => {
+    if (!executeOpen) return;
+    if (!executeCompletedOn) {
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, "0");
+      const dd = String(today.getDate()).padStart(2, "0");
+      setExecuteCompletedOn(`${yyyy}-${mm}-${dd}`);
+    }
+    loadExecuteRows();
+  }, [executeOpen, executeCompletedOn, loadExecuteRows]);
+
+  useEffect(() => {
     if (!refreshSignal) return;
     if (planId) loadDays();
     if (selectedDayId) loadAttendees();
@@ -328,21 +359,28 @@ export default function TrainingPlannerPanel({
 
   /* ---------------- actions ---------------- */
 
-  async function toggleAttendee(a) {
-    setSavingCrewId(a.crewId);
+  async function setAttendeeIncluded(rowId, crewId, nextIncluded) {
+    setSavingCrewId(crewId);
 
     try {
       await supabasePatch(
-        `/rest/v1/training_plan_day_attendees?id=eq.${a.rowId}`,
+        `/rest/v1/training_plan_day_attendees?id=eq.${rowId}`,
         {
-          included: !a.included,
-          source: a.included ? "ManualRemove" : "ManualAdd",
+          included: nextIncluded,
+          source: nextIncluded ? "ManualAdd" : "ManualRemove",
         }
       );
 
       setAttendees((prev) =>
         prev.map((x) =>
-          x.crewId === a.crewId ? { ...x, included: !x.included } : x
+          x.rowId === rowId ? { ...x, included: nextIncluded } : x
+        )
+      );
+      setExecuteRows((prev) =>
+        prev.map((x) =>
+          x.attendee_id === rowId
+            ? { ...x, included: nextIncluded, source: nextIncluded ? "ManualAdd" : "ManualRemove" }
+            : x
         )
       );
     } finally {
@@ -350,8 +388,17 @@ export default function TrainingPlannerPanel({
     }
   }
 
+  async function toggleAttendee(a) {
+    await setAttendeeIncluded(a.rowId, a.crewId, !a.included);
+  }
+
+  async function toggleExecuteRow(row) {
+    if (!row?.attendee_id || !row?.crew_id) return;
+    await setAttendeeIncluded(row.attendee_id, row.crew_id, !row.included);
+  }
+
   async function executeDay() {
-    if (!executeConfirmed || !executeCompletedBy.trim()) return;
+    if (!executeCompletedBy.trim()) return;
 
     setExecuteBusy(true);
     setExecuteError("");
@@ -365,6 +412,7 @@ export default function TrainingPlannerPanel({
       });
 
       setExecuteOpen(false);
+      loadDays();
     } catch (e) {
       setExecuteError(String(e?.message || e));
     } finally {
@@ -903,14 +951,16 @@ export default function TrainingPlannerPanel({
         open={executeOpen}
         busy={executeBusy}
         error={executeError}
+        rows={executeRows}
+        rowsLoading={executeRowsLoading}
+        rowsError={executeRowsError}
+        onToggleRow={toggleExecuteRow}
         completedOn={executeCompletedOn}
         setCompletedOn={setExecuteCompletedOn}
         completedBy={executeCompletedBy}
         setCompletedBy={setExecuteCompletedBy}
         notes={executeNotes}
         setNotes={setExecuteNotes}
-        confirmed={executeConfirmed}
-        setConfirmed={setExecuteConfirmed}
         onConfirm={executeDay}
         onClose={() => setExecuteOpen(false)}
       />
