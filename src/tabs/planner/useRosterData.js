@@ -1,14 +1,6 @@
 // src/tabs/planner/useRosterData.js
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-function iso(d) {
-  if (!d) return "";
-  if (typeof d === "string") return d.slice(0, 10);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
+import { addDaysISO, isoDate } from "../../utils/dates";
 
 function startOfWeekMonday(date) {
   const d = new Date(date);
@@ -32,12 +24,6 @@ function normalizeTrackId(value) {
   return n;
 }
 
-function addDays(dateISO, n) {
-  const d = new Date(`${dateISO}T00:00:00`);
-  d.setDate(d.getDate() + n);
-  return iso(d);
-}
-
 function keyOf(dateISO, crewId) {
   return `${dateISO}|${Number(crewId)}`;
 }
@@ -53,15 +39,17 @@ export default function useRosterData({
   const rangeDays = Math.max(1, Number(days) || 7);
 
   const [startISO, setStartISO] = useState(() => {
-    return iso(startOfWeekMonday(new Date()));
+    return isoDate(startOfWeekMonday(new Date()));
   });
 
   const endISO = useMemo(
-    () => addDays(startISO, rangeDays - 1),
+    () => addDaysISO(startISO, rangeDays - 1),
     [startISO, rangeDays]
   );
   const dateList = useMemo(() => {
-    return Array.from({ length: rangeDays }, (_, i) => addDays(startISO, i));
+    return Array.from({ length: rangeDays }, (_, i) =>
+      addDaysISO(startISO, i)
+    );
   }, [startISO, rangeDays]);
 
   // Crew
@@ -337,8 +325,8 @@ export default function useRosterData({
     if (savePaused) return;
     if (!dateList || dateList.length === 0) return;
 
-    const prevStart = safeISODate(addDays(startISO, -rangeDays));
-    const prevEnd = safeISODate(addDays(endISO, -rangeDays));
+    const prevStart = safeISODate(addDaysISO(startISO, -rangeDays));
+    const prevEnd = safeISODate(addDaysISO(endISO, -rangeDays));
     if (!prevStart || !prevEnd) return;
 
     // Load previous week assignments (not into visible state)
@@ -375,7 +363,7 @@ export default function useRosterData({
       for (let i = 0; i < dateList.length; i++) {
         const curDay = safeISODate(dateList[i]);
         if (!curDay) continue;
-        const prevDay = safeISODate(addDays(curDay, -rangeDays));
+        const prevDay = safeISODate(addDaysISO(curDay, -rangeDays));
         if (!prevDay) continue;
         const prevEntry =
           prevMap.get(keyOf(prevDay, c.id)) || {
@@ -400,7 +388,7 @@ export default function useRosterData({
   const shiftWeek = useCallback((deltaWeeks) => {
     const dw = Number(deltaWeeks) || 0;
     if (!dw) return;
-    setStartISO((prev) => addDays(prev, dw * rangeDays));
+    setStartISO((prev) => addDaysISO(prev, dw * rangeDays));
   }, [rangeDays]);
 
   useEffect(() => {

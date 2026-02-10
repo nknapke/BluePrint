@@ -1,38 +1,14 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { hexToRgba, normalizeHex } from "../../utils/colors";
+import { normalizeHex, trackGlowFromHex } from "../../utils/colors";
+import {
+  addDaysISO,
+  formatMonthDay,
+  formatWeekdayShort,
+  isoDate,
+} from "../../utils/dates";
+import { prettyDept } from "../../utils/strings";
 
 const EMPTY_ARRAY = [];
-
-/** ---------- date helpers ---------- */
-function iso(d) {
-  if (!d) return "";
-  if (typeof d === "string") return d.slice(0, 10);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function addDays(dateISO, n) {
-  const d = new Date(`${dateISO}T00:00:00`);
-  d.setDate(d.getDate() + n);
-  return iso(d);
-}
-
-function fmtDow(dateISO) {
-  const d = new Date(`${dateISO}T00:00:00`);
-  return d.toLocaleDateString(undefined, { weekday: "short" });
-}
-
-function fmtMD(dateISO) {
-  const d = new Date(`${dateISO}T00:00:00`);
-  return d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
-}
-
-function prettyDept(s) {
-  const raw = String(s || "").trim();
-  return raw || "Unassigned";
-}
 
 /** ---------- GRID ---------- */
 
@@ -52,13 +28,13 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
     mode: null, // true = paint on, false = paint off
   });
 
-  const startISO = roster?.startISO || iso(new Date());
+  const startISO = roster?.startISO || isoDate(new Date());
   const days = useMemo(() => {
     if (roster?.dateList?.length) return roster.dateList;
-    return Array.from({ length: 7 }, (_, i) => addDays(startISO, i));
+    return Array.from({ length: 7 }, (_, i) => addDaysISO(startISO, i));
   }, [roster?.dateList, startISO]);
 
-  const todayISO = iso(new Date());
+  const todayISO = isoDate(new Date());
 
   const filteredCrew = useMemo(() => {
     const crew = roster?.crew ?? EMPTY_ARRAY;
@@ -311,9 +287,11 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                   }}
                 >
                   <div style={{ fontSize: 13, fontWeight: 900 }}>
-                    {fmtDow(d)}
+                    {formatWeekdayShort(d)}
                   </div>
-                  <div style={{ fontSize: 12, opacity: 0.6 }}>{fmtMD(d)}</div>
+                  <div style={{ fontSize: 12, opacity: 0.6 }}>
+                    {formatMonthDay(d)}
+                  </div>
                 </div>
               );
             })}
@@ -383,23 +361,16 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                         {days.map((d) => {
                           const working = isWorking(d, c.id);
                           const trackId = getTrackId(d, c.id);
-                        const trackLabel =
-                          trackId != null && Number.isFinite(trackId)
-                            ? trackNameById.get(Number(trackId)) || ""
-                            : "";
-                        const trackHex =
-                          trackId != null && Number.isFinite(trackId)
-                            ? trackColorById.get(Number(trackId)) || ""
-                            : "";
-                        const trackGlow = trackHex
-                          ? {
-                              bg: hexToRgba(trackHex, 0.18),
-                              border: hexToRgba(trackHex, 0.45),
-                              shadow: hexToRgba(trackHex, 0.35),
-                              inset: hexToRgba(trackHex, 0.28),
-                            }
-                          : null;
-                        const hover = rowHover || hoverDate === d;
+                          const trackLabel =
+                            trackId != null && Number.isFinite(trackId)
+                              ? trackNameById.get(Number(trackId)) || ""
+                              : "";
+                          const trackHex =
+                            trackId != null && Number.isFinite(trackId)
+                              ? trackColorById.get(Number(trackId)) || ""
+                              : "";
+                          const trackGlow = trackGlowFromHex(trackHex);
+                          const hover = rowHover || hoverDate === d;
 
                           return (
                             <div
@@ -410,7 +381,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                                 setHoverDate(d);
                                 dragOver(d, c.id);
                               }}
-                            style={{
+                              style={{
                               ...cellBase,
                               background: working
                                 ? trackGlow

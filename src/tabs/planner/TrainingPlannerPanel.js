@@ -59,12 +59,48 @@ function parseReasoningSummary(summary) {
   return { score, people, extreme, windowDays };
 }
 
+function buildCompletionLabel(simDate, actualDate) {
+  if (!simDate) return "Up to Date";
+  const simTime = new Date(`${simDate}T00:00:00`).getTime();
+  const actualTime = actualDate
+    ? new Date(`${actualDate}T00:00:00`).getTime()
+    : null;
+  const isPredictive =
+    actualTime === null || Number.isNaN(actualTime)
+      ? true
+      : simTime > actualTime;
+  const prefix = isPredictive ? "Will be Completed on" : "Last Completed";
+  return `Up to Date — ${prefix} ${shortDate(simDate)}`;
+}
+
+function buildAttendeeReasonLines(attendee) {
+  const lines = [];
+  if (attendee.isOutOfDate) lines.push({ text: "Out of Date", tone: "bad" });
+  if (attendee.noPriorTraining) {
+    lines.push({ text: "No Prior Training History", tone: "bad" });
+  }
+  if (attendee.isExtremeOverdue) {
+    lines.push({ text: "30+ Days Overdue", tone: "bad" });
+  }
+
+  if (lines.length === 0) {
+    lines.push({
+      text: buildCompletionLabel(
+        attendee.simulatedLastCompleted || null,
+        attendee.actualLastCompleted || null
+      ),
+      tone: "good",
+      bold: true,
+    });
+  }
+
+  return lines;
+}
+
 function formatReasoningSummaryParts(day) {
   const parsed = parseReasoningSummary(day?.reasoning_summary);
   const priorityScore =
     day?.priority_score ?? (parsed ? parsed.score : null);
-  const lookAheadDays =
-    day?.look_ahead_window_days ?? (parsed ? parsed.windowDays : null);
   const requiredCrew = day?.required_crew_count ?? null;
   const updateCrew =
     day?.update_crew_count ??
@@ -123,33 +159,6 @@ function formatReasoningSummaryParts(day) {
   }
 
   return { headline, lines };
-}
-
-function statusMeta(status) {
-  const label = String(status || "Open");
-  const normalized = label.toLowerCase();
-
-  if (normalized.includes("execute") || normalized.includes("complete")) {
-    return { label, tone: "good" };
-  }
-
-  if (
-    normalized.includes("open") ||
-    normalized.includes("draft") ||
-    normalized.includes("plan")
-  ) {
-    return { label: label || "Open", tone: "info" };
-  }
-
-  if (normalized.includes("hold") || normalized.includes("pause")) {
-    return { label, tone: "warn" };
-  }
-
-  if (normalized.includes("cancel") || normalized.includes("error")) {
-    return { label, tone: "bad" };
-  }
-
-  return { label, tone: null };
 }
 
 /* ---------------- TrainingPlannerPanel ---------------- */
@@ -846,81 +855,39 @@ export default function TrainingPlannerPanel({
                       >
                         Reason
                       </div>
-                      {(() => {
-                        const lines = [
-                          a.isOutOfDate ? { text: "Out of Date", tone: "bad" } : null,
-                          a.noPriorTraining
-                            ? { text: "No Prior Training History", tone: "bad" }
-                            : null,
-                          a.isExtremeOverdue
-                            ? { text: "30+ Days Overdue", tone: "bad" }
-                            : null,
-                        ].filter(Boolean);
-
-                        const isUpToDate =
-                          !a.isOutOfDate && !a.noPriorTraining && !a.isExtremeOverdue;
-
-                        if (isUpToDate) {
-                          const simDate = a.simulatedLastCompleted || null;
-                          const actualDate = a.actualLastCompleted || null;
-                          let completionLabel = "Up to Date";
-                          if (simDate) {
-                            const simTime = new Date(`${simDate}T00:00:00`).getTime();
-                            const actualTime = actualDate
-                              ? new Date(`${actualDate}T00:00:00`).getTime()
-                              : null;
-                            const isPredictive =
-                              actualTime === null || Number.isNaN(actualTime)
-                                ? true
-                                : simTime > actualTime;
-                            const prefix = isPredictive
-                              ? "Will be Completed on"
-                              : "Last Completed";
-                            completionLabel = `Up to Date — ${prefix} ${shortDate(
-                              simDate
-                            )}`;
-                          }
-                          lines.push({
-                            text: completionLabel,
-                            tone: "good",
-                            bold: true,
-                          });
-                        }
-
-                        return lines.map((line) => {
-                          const text = typeof line === "string" ? line : line.text;
-                          const tone = typeof line === "string" ? null : line.tone;
-                          const bold = true;
-                          const textStyle =
-                            tone === "good"
-                              ? { color: "rgba(120,255,180,0.95)" }
-                              : tone === "bad"
-                              ? { color: "rgba(255,120,120,0.95)" }
-                              : null;
-                          return (
-                            <div
-                              key={text}
+                      {buildAttendeeReasonLines(a).map((line) => {
+                        const text = typeof line === "string" ? line : line.text;
+                        const tone = typeof line === "string" ? null : line.tone;
+                        const bold = true;
+                        const textStyle =
+                          tone === "good"
+                            ? { color: "rgba(120,255,180,0.95)" }
+                            : tone === "bad"
+                            ? { color: "rgba(255,120,120,0.95)" }
+                            : null;
+                        return (
+                          <div
+                            key={text}
+                            style={{
+                              display: "flex",
+                              gap: 6,
+                              alignItems: "flex-start",
+                            }}
+                          >
+                            <span style={{ color: "rgba(255,255,255,0.5)" }}>
+                              •
+                            </span>
+                            <span
                               style={{
-                                display: "flex",
-                                gap: 6,
-                                alignItems: "flex-start",
+                                ...(textStyle || {}),
+                                fontWeight: bold ? 700 : undefined,
                               }}
                             >
-                              <span style={{ color: "rgba(255,255,255,0.5)" }}>
-                                •
-                              </span>
-                              <span
-                                style={{
-                                  ...(textStyle || {}),
-                                  fontWeight: bold ? 700 : undefined,
-                                }}
-                              >
-                                {text}
-                              </span>
-                            </div>
-                          );
-                        });
-                      })()}
+                              {text}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );

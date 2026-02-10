@@ -5,6 +5,7 @@ import { DotCount } from "../components/ui/DotCount";
 import { Chip } from "../components/ui/Chip";
 import { Segmented } from "../components/ui/Segmented";
 import { tintFromHex, normalizeHex } from "../utils/colors";
+import { prettyDept } from "../utils/strings";
 
 const STATUS_ORDER = ["No", "Training", "Yes"];
 
@@ -13,11 +14,6 @@ function nextStatus(current) {
   const idx = STATUS_ORDER.indexOf(normalized);
   if (idx === -1) return "No";
   return STATUS_ORDER[(idx + 1) % STATUS_ORDER.length];
-}
-
-function prettyDept(s) {
-  const raw = String(s || "").trim();
-  return raw || "Unassigned";
 }
 
 /** ---------- Row highlight by signoff status ---------- */

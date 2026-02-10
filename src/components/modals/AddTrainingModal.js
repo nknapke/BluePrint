@@ -36,6 +36,32 @@ export default function AddTrainingModal({
       })
     : [];
 
+  const labelStyle = { ...S.helper, marginBottom: 6 };
+  const formGrid = { display: "grid", gap: 10 };
+  const idRow = {
+    display: "grid",
+    gridTemplateColumns: "auto 160px",
+    gap: 10,
+    alignItems: "end",
+  };
+  const twoColGrid = {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+  };
+  const actionsRow = {
+    display: "flex",
+    gap: 10,
+    justifyContent: "flex-end",
+    marginTop: 6,
+  };
+  const trainingIdInput = {
+    ...S.input,
+    width: "100%",
+    maxWidth: 220,
+  };
+  const fullWidthSelect = { ...S.select, width: "100%" };
+
   return (
     <div style={S.modalOverlay} onMouseDown={onClose}>
       <div style={S.modalCard} onMouseDown={(e) => e.stopPropagation()}>
@@ -51,37 +77,26 @@ export default function AddTrainingModal({
         </div>
 
         <div style={S.modalBody}>
-          <div style={{ display: "grid", gap: 10 }}>
+          <div style={formGrid}>
             {/* Training ID + Active */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "auto 160px",
-                gap: 10,
-                alignItems: "end",
-              }}
-            >
+            <div style={idRow}>
               <div>
-                <div style={{ ...S.helper, marginBottom: 6 }}>Training #</div>
+                <div style={labelStyle}>Training #</div>
                 <input
                   value={newTrainingId}
                   onChange={(e) => setNewTrainingId(e.target.value)}
-                  style={{
-                    ...S.input,
-                    width: "100%",
-                    maxWidth: 220, // ✅ keeps it compact
-                  }}
+                  style={trainingIdInput}
                   placeholder="e.g. 101"
                   inputMode="numeric"
                 />
               </div>
 
               <div>
-                <div style={{ ...S.helper, marginBottom: 6 }}>Active</div>
+                <div style={labelStyle}>Active</div>
                 <select
                   value={newTrainingActive}
                   onChange={(e) => setNewTrainingActive(e.target.value)}
-                  style={{ ...S.select, width: "100%" }}
+                  style={fullWidthSelect}
                 >
                   <option value="TRUE">TRUE</option>
                   <option value="FALSE">FALSE</option>
@@ -91,7 +106,7 @@ export default function AddTrainingModal({
 
             {/* Training Name */}
             <div>
-              <div style={{ ...S.helper, marginBottom: 6 }}>Training Name</div>
+              <div style={labelStyle}>Training Name</div>
               <input
                 value={newTrainingName}
                 onChange={(e) => setNewTrainingName(e.target.value)}
@@ -102,7 +117,7 @@ export default function AddTrainingModal({
 
             {/* Training Group */}
             <div>
-              <div style={{ ...S.helper, marginBottom: 6 }}>Group</div>
+              <div style={labelStyle}>Group</div>
               <select
                 value={newTrainingGroupId}
                 onChange={(e) => setNewTrainingGroupId(e.target.value)}
@@ -118,15 +133,9 @@ export default function AddTrainingModal({
             </div>
 
             {/* Expire In */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-              }}
-            >
+            <div style={twoColGrid}>
               <div>
-                <div style={{ ...S.helper, marginBottom: 6 }}>Expire In</div>
+                <div style={labelStyle}>Expire In</div>
                 <select
                   value={expiryMode}
                   onChange={(e) => {
@@ -148,7 +157,7 @@ export default function AddTrainingModal({
               </div>
 
               <div>
-                <div style={{ ...S.helper, marginBottom: 6 }}>Weeks</div>
+                <div style={labelStyle}>Weeks</div>
                 <input
                   value={newTrainingExpiryWeeks}
                   onChange={(e) => {
@@ -167,14 +176,7 @@ export default function AddTrainingModal({
             </div>
 
             {/* Actions */}
-            <div
-              style={{
-                display: "flex",
-                gap: 10,
-                justifyContent: "flex-end",
-                marginTop: 6,
-              }}
-            >
+            <div style={actionsRow}>
               <button
                 style={S.button("ghost", isBusy)}
                 onClick={onClose}

@@ -17,6 +17,20 @@ export default function AddCrewModal({
 }) {
   if (!isOpen) return null;
 
+  const labelStyle = { ...S.helper, marginBottom: 6 };
+  const formGrid = { display: "grid", gap: 10 };
+  const twoColGrid = {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+  };
+  const actionsRow = {
+    display: "flex",
+    gap: 10,
+    justifyContent: "flex-end",
+    marginTop: 6,
+  };
+
   return (
     <div style={S.modalOverlay} onMouseDown={onClose}>
       <div style={S.modalCard} onMouseDown={(e) => e.stopPropagation()}>
@@ -32,9 +46,9 @@ export default function AddCrewModal({
         </div>
 
         <div style={S.modalBody}>
-          <div style={{ display: "grid", gap: 10 }}>
+          <div style={formGrid}>
             <div>
-              <div style={{ ...S.helper, marginBottom: 6 }}>Name</div>
+              <div style={labelStyle}>Name</div>
               <input
                 value={newCrewName}
                 onChange={(e) => setNewCrewName(e.target.value)}
@@ -43,15 +57,9 @@ export default function AddCrewModal({
               />
             </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-              }}
-            >
+            <div style={twoColGrid}>
               <div>
-                <div style={{ ...S.helper, marginBottom: 6 }}>Department</div>
+                <div style={labelStyle}>Department</div>
                 <select
                   value={newCrewDept}
                   onChange={(e) => setNewCrewDept(e.target.value)}
@@ -67,7 +75,7 @@ export default function AddCrewModal({
               </div>
 
               <div>
-                <div style={{ ...S.helper, marginBottom: 6 }}>Status</div>
+                <div style={labelStyle}>Status</div>
                 <select
                   value={newCrewStatus}
                   onChange={(e) => setNewCrewStatus(e.target.value)}
@@ -79,14 +87,7 @@ export default function AddCrewModal({
               </div>
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                gap: 10,
-                justifyContent: "flex-end",
-                marginTop: 6,
-              }}
-            >
+            <div style={actionsRow}>
               <button
                 style={S.button("ghost", isBusy)}
                 onClick={onClose}

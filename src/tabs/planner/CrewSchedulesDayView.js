@@ -1,22 +1,10 @@
 import { useMemo } from "react";
 
-import { hexToRgba, normalizeHex } from "../../utils/colors";
+import { normalizeHex, trackGlowFromHex } from "../../utils/colors";
+import { formatLongDate } from "../../utils/dates";
+import { prettyDept } from "../../utils/strings";
 
 const EMPTY_ARRAY = [];
-
-function prettyDate(iso) {
-  const d = new Date(`${iso}T00:00:00`);
-  return d.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function prettyDept(s) {
-  const raw = String(s || "").trim();
-  return raw || "Unassigned";
-}
 
 export default function CrewSchedulesDayView({
   S,
@@ -132,7 +120,7 @@ export default function CrewSchedulesDayView({
         >
           <div>
             <div style={{ fontSize: 16, fontWeight: 800 }}>
-              {prettyDate(dateISO)}
+              {formatLongDate(dateISO)}
             </div>
             <div style={{ ...S.helper, marginTop: 4 }}>
               {workingCount} working · {filteredCrew.length - workingCount} off
@@ -183,14 +171,7 @@ export default function CrewSchedulesDayView({
                     trackId != null && Number.isFinite(trackId)
                       ? trackColorById.get(Number(trackId)) || ""
                       : "";
-                  const trackGlow = trackHex
-                    ? {
-                        bg: hexToRgba(trackHex, 0.18),
-                        border: hexToRgba(trackHex, 0.45),
-                        shadow: hexToRgba(trackHex, 0.35),
-                        inset: hexToRgba(trackHex, 0.28),
-                      }
-                    : null;
+                  const trackGlow = trackGlowFromHex(trackHex);
                   return (
                     <div
                       key={c.id}

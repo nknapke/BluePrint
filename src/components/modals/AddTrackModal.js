@@ -29,6 +29,21 @@ export default function AddTrackModal({
     boxSizing: "border-box",
   };
 
+  const labelStyle = { ...S.helper, marginBottom: 6 };
+  const formGrid = { display: "grid", gap: 10 };
+  const idRow = {
+    display: "grid",
+    gridTemplateColumns: "0.6fr 1.4fr",
+    gap: 12,
+    alignItems: "end",
+  };
+  const actionsRow = {
+    display: "flex",
+    gap: 10,
+    justifyContent: "flex-end",
+    marginTop: 6,
+  };
+
   return (
     <div style={S.modalOverlay} onMouseDown={onClose}>
       <div style={S.modalCard} onMouseDown={(e) => e.stopPropagation()}>
@@ -44,17 +59,10 @@ export default function AddTrackModal({
         </div>
 
         <div style={S.modalBody}>
-          <div style={{ display: "grid", gap: 10 }}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "0.6fr 1.4fr",
-                gap: 12,
-                alignItems: "end",
-              }}
-            >
+          <div style={formGrid}>
+            <div style={idRow}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ ...S.helper, marginBottom: 6 }}>Track #</div>
+                <div style={labelStyle}>Track #</div>
                 <input
                   value={newTrackId}
                   onChange={(e) => setNewTrackId(e.target.value)}
@@ -65,7 +73,7 @@ export default function AddTrackModal({
               </div>
 
               <div style={{ minWidth: 0 }}>
-                <div style={{ ...S.helper, marginBottom: 6 }}>Track Name</div>
+                <div style={labelStyle}>Track Name</div>
                 <input
                   value={newTrackName}
                   onChange={(e) => setNewTrackName(e.target.value)}
@@ -76,7 +84,7 @@ export default function AddTrackModal({
             </div>
 
             <div style={{ maxWidth: 240 }}>
-              <div style={{ ...S.helper, marginBottom: 6 }}>Active</div>
+              <div style={labelStyle}>Active</div>
               <select
                 value={newTrackActive}
                 onChange={(e) => setNewTrackActive(e.target.value)}
@@ -87,14 +95,7 @@ export default function AddTrackModal({
               </select>
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                gap: 10,
-                justifyContent: "flex-end",
-                marginTop: 6,
-              }}
-            >
+            <div style={actionsRow}>
               <button
                 style={S.button("ghost", isBusy)}
                 onClick={onClose}
