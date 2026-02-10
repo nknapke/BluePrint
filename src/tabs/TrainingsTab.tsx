@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, Dispatch, MouseEvent, SetStateAction } from "react";
 import { Segmented } from "../components/ui/Segmented";
 import { Chevron } from "../components/ui/Chevron";
-import { DotCount } from "../components/ui/DotCount";
 import { FieldLabel } from "../components/ui/FieldLabel";
 import { useExpandableKeys } from "../hooks/useExpandableKeys";
 import { buildTrackColorMap, hexToRgba } from "../utils/colors";
@@ -30,12 +29,8 @@ function GroupHeaderIOS({
   subtitle,
   open,
   onToggle,
-  counts,
   accentHex,
-  showCounts = true,
 }: any) {
-  const active = counts?.active ?? 0;
-  const inactive = counts?.inactive ?? 0;
   const accent = accentHex ? hexToRgba(accentHex, 0.65) : "";
 
   return (
@@ -121,20 +116,6 @@ function GroupHeaderIOS({
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {showCounts && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <DotCount
-              color="rgba(52,199,89,0.90)"
-              count={active}
-              title={`Active: ${active}`}
-            />
-            <DotCount
-              color="rgba(142,142,147,0.85)"
-              count={inactive}
-              title={`Inactive: ${inactive}`}
-            />
-          </div>
-        )}
         <Chevron open={open} />
       </div>
     </button>
@@ -445,6 +426,13 @@ function TrainingRowCard({
               >
                 Cancel
               </button>
+              <button
+                onClick={() => actions.deleteTrainingDefinition(t)}
+                disabled={edit.editTrainingSaving}
+                style={S.button("danger", edit.editTrainingSaving)}
+              >
+                Delete
+              </button>
             </>
           ) : (
             <>
@@ -453,12 +441,6 @@ function TrainingRowCard({
                 style={S.button("subtle")}
               >
                 Edit
-              </button>
-              <button
-                onClick={() => actions.deleteTrainingDefinition(t)}
-                style={S.button("danger")}
-              >
-                Delete
               </button>
             </>
           )}
@@ -1035,11 +1017,6 @@ export default function TrainingsTab({
     [sortedGroups, updateTrainingGroup]
   );
 
-  const resetAll = useCallback(() => {
-    setTrainQ("");
-    expand.resetToDefault();
-  }, [expand]);
-
   const trackColorById = useMemo(() => buildTrackColorMap(tracks), [tracks]);
 
   const trainingReqGroup = useMemo(() => {
@@ -1253,22 +1230,8 @@ export default function TrainingsTab({
                 </button>
               </div>
 
-              <button style={S.button("ghost")} onClick={resetAll}>
-                Clear
-              </button>
 
-              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                <DotCount
-                  color="rgba(52,199,89,0.90)"
-                  count={totalCounts.active}
-                  title={`Active: ${totalCounts.active}`}
-                />
-                <DotCount
-                  color="rgba(142,142,147,0.85)"
-                  count={totalCounts.inactive}
-                  title={`Inactive: ${totalCounts.inactive}`}
-                />
-              </div>
+              <div style={{ marginLeft: "auto" }} />
             </div>
 
             {trainingGroupsLoading && (
@@ -1293,8 +1256,6 @@ export default function TrainingsTab({
                         title={g.title}
                         subtitle={g.subtitle}
                         open={open}
-                        counts={g.counts}
-                        showCounts={false}
                         onToggle={() => expand.toggle(g.key)}
                       />
 
@@ -1538,11 +1499,6 @@ export default function TrainingsTab({
                   filteredTrackGroups.map((g) => {
                     const open = isReqTrackExpanded(g.trackId);
                     const items = g.items || [];
-                    const active = items.reduce(
-                      (n, r) => n + (r.active ? 1 : 0),
-                      0
-                    );
-                    const inactive = items.length - active;
 
                     const groupKey = `tk_${g.trackId}`;
                     const headerAccentHex =
@@ -1557,9 +1513,7 @@ export default function TrainingsTab({
                           title={g.trackName}
                           subtitle={`${items.length} trainings`}
                           open={open}
-                          counts={{ active, inactive }}
                           accentHex={headerAccentHex}
-                          showCounts={false}
                           onToggle={() => toggleReqTrackExpanded(g.trackId)}
                         />
 

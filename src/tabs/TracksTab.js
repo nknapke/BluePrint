@@ -1,6 +1,5 @@
 // TracksTab.js
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
-import { DotCount } from "../components/ui/DotCount";
 import { FieldLabel } from "../components/ui/FieldLabel";
 import { IdMeta } from "../components/ui/IdMeta";
 import { hexToRgba } from "../utils/colors";
@@ -291,6 +290,13 @@ function TrackRowCard({
               >
                 Cancel
               </button>
+              <button
+                onClick={() => actions.deleteTrackDefinition(t)}
+                disabled={edit.editTrackSaving}
+                style={S.button("danger", edit.editTrackSaving)}
+              >
+                Delete
+              </button>
             </>
           ) : (
             <>
@@ -299,12 +305,6 @@ function TrackRowCard({
                 style={S.button("subtle")}
               >
                 Edit
-              </button>
-              <button
-                onClick={() => actions.deleteTrackDefinition(t)}
-                style={S.button("danger")}
-              >
-                Delete
               </button>
             </>
           )}
@@ -468,18 +468,7 @@ export default function TracksTab({
               </button>
             </div>
 
-            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-              <DotCount
-                color="rgba(52,199,89,0.90)"
-                count={activeCount}
-                title={`Active: ${activeCount}`}
-              />
-              <DotCount
-                color="rgba(142,142,147,0.85)"
-                count={inactiveCount}
-                title={`Inactive: ${inactiveCount}`}
-              />
-            </div>
+            <div style={{ marginLeft: "auto" }} />
           </div>
         </div>
 

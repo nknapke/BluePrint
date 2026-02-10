@@ -2,15 +2,11 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { StatusBadge } from "../components/ui/Badges";
 import { Chevron } from "../components/ui/Chevron";
-import { DotCount } from "../components/ui/DotCount";
 import { Chip } from "../components/ui/Chip";
 import { useExpandableKeys } from "../hooks/useExpandableKeys";
 import { prettyTitle } from "../utils/strings";
 
-function GroupHeaderIOS({ title, subtitle, open, onToggle, counts }) {
-  const active = counts?.active ?? 0;
-  const inactive = counts?.inactive ?? 0;
-
+function GroupHeaderIOS({ title, subtitle, open, onToggle }) {
   return (
     <button
       type="button"
@@ -78,18 +74,6 @@ function GroupHeaderIOS({ title, subtitle, open, onToggle, counts }) {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <DotCount
-            color="rgba(52,199,89,0.90)"
-            count={active}
-            title={`Active: ${active}`}
-          />
-          <DotCount
-            color="rgba(142,142,147,0.85)"
-            count={inactive}
-            title={`Not Active: ${inactive}`}
-          />
-        </div>
         <Chevron open={open} />
       </div>
     </button>
@@ -237,6 +221,13 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast, deptOptions }) {
               >
                 Cancel
               </button>
+              <button
+                onClick={() => actions.deleteCrewMember(c)}
+                disabled={edit.editCrewSaving}
+                style={S.button("danger", edit.editCrewSaving)}
+              >
+                Delete
+              </button>
             </>
           ) : (
             <>
@@ -245,12 +236,6 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast, deptOptions }) {
                 style={S.button("subtle")}
               >
                 Edit
-              </button>
-              <button
-                onClick={() => actions.deleteCrewMember(c)}
-                style={S.button("danger")}
-              >
-                Delete
               </button>
             </>
           )}
@@ -346,9 +331,6 @@ export default function CrewTab({
     }
 
     const groups = Array.from(map.entries()).map(([dept, items]) => {
-      const active = items.reduce((n, x) => n + (x.active ? 1 : 0), 0);
-      const inactive = items.length - active;
-
       const sorted = [...items].sort((a, b) =>
         String(a.name || "").localeCompare(String(b.name || ""))
       );
@@ -357,7 +339,6 @@ export default function CrewTab({
         key: dept,
         title: dept,
         items: sorted,
-        counts: { active, inactive },
       };
     });
 
@@ -781,7 +762,6 @@ export default function CrewTab({
                     subtitle={`${g.items.length} people`}
                     open={open}
                     onToggle={() => toggleDept(g.key)}
-                    counts={g.counts}
                   />
 
                   {open && (
