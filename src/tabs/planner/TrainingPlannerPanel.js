@@ -284,7 +284,7 @@ export default function TrainingPlannerPanel({
 
       try {
         const rows = await supabaseGet(
-          `/rest/v1/v_plan_day_effective_attendees?select=attendee_id,crew_id,included,source,track_id,track_name,is_out_of_date,no_prior_training,is_extreme_overdue,simulated_last_completed&day_id=eq.${selectedDayId}`
+          `/rest/v1/v_plan_day_effective_attendees?select=attendee_id,crew_id,included,source,track_id,track_name,is_out_of_date,no_prior_training,is_extreme_overdue,simulated_last_completed,actual_last_completed&day_id=eq.${selectedDayId}`
         );
 
         const crewIds = rows.map((r) => r.crew_id).join(",");
@@ -313,6 +313,7 @@ export default function TrainingPlannerPanel({
             noPriorTraining: r.no_prior_training ?? false,
             isExtremeOverdue: r.is_extreme_overdue ?? false,
             simulatedLastCompleted: r.simulated_last_completed || null,
+            actualLastCompleted: r.actual_last_completed || null,
           }))
         );
       } catch (e) {
@@ -763,9 +764,7 @@ export default function TrainingPlannerPanel({
                   <div
                     key={a.crewId}
                     style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
+                      display: "grid",
                       gap: 10,
                       padding: "12px 14px",
                       borderRadius: 14,
@@ -775,85 +774,140 @@ export default function TrainingPlannerPanel({
                         : "rgba(255,255,255,0.02)",
                     }}
                   >
-                    <div>
-                      <div style={{ fontWeight: 800 }}>{a.name}</div>
-                      <div
-                        style={{
-                          marginTop: 6,
-                          display: "grid",
-                          gap: 2,
-                          fontSize: 12,
-                          color: "rgba(255,255,255,0.72)",
-                        }}
-                      >
-                        {(() => {
-                          const lines = [
-                            { text: `Track: ${a.trackName || a.trackId || "Unknown"}` },
-                            a.isOutOfDate ? { text: "Out of Date" } : null,
-                            a.noPriorTraining
-                              ? { text: "No Prior Training History" }
-                              : null,
-                            a.isExtremeOverdue ? { text: "30+ Days Overdue" } : null,
-                          ].filter(Boolean);
-
-                          const isUpToDate =
-                            !a.isOutOfDate && !a.noPriorTraining && !a.isExtremeOverdue;
-
-                          if (isUpToDate) {
-                            const lastCompletedLabel = a.simulatedLastCompleted
-                              ? `Up to Date — Last completed ${shortDate(
-                                  a.simulatedLastCompleted
-                                )}`
-                              : "Up to Date";
-                            lines.push({
-                              text: lastCompletedLabel,
-                              tone: "good",
-                              bold: true,
-                            });
-                          }
-
-                          return lines.map((line) => {
-                            const text = typeof line === "string" ? line : line.text;
-                            const tone = typeof line === "string" ? null : line.tone;
-                            const bold = typeof line === "string" ? false : line.bold;
-                            const textStyle =
-                              tone === "good"
-                                ? { color: "rgba(120,255,180,0.95)" }
-                                : null;
-                            return (
-                              <div
-                                key={text}
-                                style={{
-                                  display: "flex",
-                                  gap: 6,
-                                  alignItems: "flex-start",
-                                }}
-                              >
-                                <span style={{ color: "rgba(255,255,255,0.5)" }}>
-                                  •
-                                </span>
-                                <span
-                                  style={{
-                                    ...(textStyle || {}),
-                                    fontWeight: bold ? 700 : undefined,
-                                  }}
-                                >
-                                  {text}
-                                </span>
-                              </div>
-                            );
-                          });
-                        })()}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: 10,
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 800 }}>{a.name}</div>
+                        <div
+                          style={{
+                            marginTop: 2,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            letterSpacing: "0.06em",
+                            textTransform: "uppercase",
+                            color: "rgba(255,255,255,0.7)",
+                          }}
+                        >
+                          {String(a.trackName || a.trackId || "Unknown").toUpperCase()}
+                        </div>
                       </div>
+
+                      <button
+                        onClick={() => toggleAttendee(a)}
+                        disabled={savingCrewId === a.crewId}
+                        style={S.button(actionVariant, savingCrewId === a.crewId)}
+                      >
+                        {includeAction}
+                      </button>
                     </div>
 
-                    <button
-                      onClick={() => toggleAttendee(a)}
-                      disabled={savingCrewId === a.crewId}
-                      style={S.button(actionVariant, savingCrewId === a.crewId)}
+                    <div
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 12,
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        background: "rgba(255,255,255,0.05)",
+                        display: "grid",
+                        gap: 4,
+                        fontSize: 12.5,
+                        color: "rgba(255,255,255,0.8)",
+                        width: "100%",
+                        boxSizing: "border-box",
+                      }}
                     >
-                      {includeAction}
-                    </button>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 800,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.08em",
+                          color: "rgba(255,255,255,0.55)",
+                        }}
+                      >
+                        Reason
+                      </div>
+                      {(() => {
+                        const lines = [
+                          a.isOutOfDate ? { text: "Out of Date", tone: "bad" } : null,
+                          a.noPriorTraining
+                            ? { text: "No Prior Training History", tone: "bad" }
+                            : null,
+                          a.isExtremeOverdue
+                            ? { text: "30+ Days Overdue", tone: "bad" }
+                            : null,
+                        ].filter(Boolean);
+
+                        const isUpToDate =
+                          !a.isOutOfDate && !a.noPriorTraining && !a.isExtremeOverdue;
+
+                        if (isUpToDate) {
+                          const simDate = a.simulatedLastCompleted || null;
+                          const actualDate = a.actualLastCompleted || null;
+                          let completionLabel = "Up to Date";
+                          if (simDate) {
+                            const simTime = new Date(`${simDate}T00:00:00`).getTime();
+                            const actualTime = actualDate
+                              ? new Date(`${actualDate}T00:00:00`).getTime()
+                              : null;
+                            const isPredictive =
+                              actualTime === null || Number.isNaN(actualTime)
+                                ? true
+                                : simTime > actualTime;
+                            const prefix = isPredictive
+                              ? "Will be Completed on"
+                              : "Last Completed";
+                            completionLabel = `Up to Date — ${prefix} ${shortDate(
+                              simDate
+                            )}`;
+                          }
+                          lines.push({
+                            text: completionLabel,
+                            tone: "good",
+                            bold: true,
+                          });
+                        }
+
+                        return lines.map((line) => {
+                          const text = typeof line === "string" ? line : line.text;
+                          const tone = typeof line === "string" ? null : line.tone;
+                          const bold = true;
+                          const textStyle =
+                            tone === "good"
+                              ? { color: "rgba(120,255,180,0.95)" }
+                              : tone === "bad"
+                              ? { color: "rgba(255,120,120,0.95)" }
+                              : null;
+                          return (
+                            <div
+                              key={text}
+                              style={{
+                                display: "flex",
+                                gap: 6,
+                                alignItems: "flex-start",
+                              }}
+                            >
+                              <span style={{ color: "rgba(255,255,255,0.5)" }}>
+                                •
+                              </span>
+                              <span
+                                style={{
+                                  ...(textStyle || {}),
+                                  fontWeight: bold ? 700 : undefined,
+                                }}
+                              >
+                                {text}
+                              </span>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
                   </div>
                 );
               })}
