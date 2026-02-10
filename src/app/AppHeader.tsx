@@ -49,11 +49,10 @@ const LOCATION_ROW_STYLE: CSSProperties = {
   alignItems: "center",
   gap: 10,
 };
-const LOCATION_LABEL_STYLE: CSSProperties = { opacity: 0.85, fontSize: 13 };
 const LOCATION_SELECT_STYLE: CSSProperties = {
-  height: 36,
-  borderRadius: 10,
-  padding: "0 10px",
+  height: 48,
+  borderRadius: 14,
+  padding: "0 14px",
   background: "rgba(255,255,255,0.08)",
   color: "white",
   border: "1px solid rgba(255,255,255,0.12)",
@@ -84,20 +83,29 @@ export function AppHeader({
       <div style={S.headerRow}>
         <div style={S.titleBlock}>
           <div
-            style={LOGO_WRAPPER_STYLE}
-            title="BluePrint"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 6,
+            }}
           >
-            <img
-              src={blueprintIcon}
-              alt="BluePrint"
-              style={LOGO_IMAGE_STYLE}
-            />
+            <div style={LOGO_WRAPPER_STYLE} title="BluePrint">
+              <img
+                src={blueprintIcon}
+                alt="BluePrint"
+                style={LOGO_IMAGE_STYLE}
+              />
+            </div>
+            {lastUpdatedLabel ? (
+              <div style={{ ...LAST_UPDATED_STYLE, textAlign: "center" }}>
+                {lastUpdatedLabel}
+              </div>
+            ) : null}
           </div>
         </div>
 
         <div style={LOCATION_ROW_STYLE}>
-          <div style={LOCATION_LABEL_STYLE}>Location</div>
-
           <select
             value={activeLocationId ?? ""}
             onChange={(e) => setActiveLocationId(Number(e.target.value))}
@@ -114,9 +122,6 @@ export function AppHeader({
           {!!locationsError && (
             <div style={LOCATION_ERROR_STYLE}>{locationsError}</div>
           )}
-          {lastUpdatedLabel ? (
-            <div style={LAST_UPDATED_STYLE}>{lastUpdatedLabel}</div>
-          ) : null}
         </div>
 
         <div style={S.pillBar}>

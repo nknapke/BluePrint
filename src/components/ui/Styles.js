@@ -21,7 +21,7 @@ export function createStyles() {
     headerRow: {
       display: "flex",
       justifyContent: "space-between",
-      alignItems: "flex-end",
+      alignItems: "center",
       gap: 14,
       flexWrap: "wrap",
     },
