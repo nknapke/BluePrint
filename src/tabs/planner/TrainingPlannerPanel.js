@@ -413,6 +413,12 @@ export default function TrainingPlannerPanel({
     color: "rgba(255,255,255,0.6)",
   };
 
+  const stickySide = {
+    position: "sticky",
+    top: 110,
+    alignSelf: "start",
+  };
+
   return (
     <div style={{ marginTop: 14 }}>
       {/* Generate */}
@@ -713,7 +719,8 @@ export default function TrainingPlannerPanel({
         </div>
 
         {/* Attendees */}
-        <div style={sectionCard}>
+        <div style={stickySide}>
+          <div style={sectionCard}>
           <div
             style={{
               display: "flex",
@@ -728,9 +735,7 @@ export default function TrainingPlannerPanel({
                 {selectedDay ? prettyDate(selectedDay.plan_date) : "Attendees"}
               </div>
               <div style={sectionSub}>
-                {selectedDay
-                  ? "Review, include, or exclude crew for this day."
-                  : "Select a day to view attendees."}
+                {selectedDay ? "" : "Select a day to view attendees."}
               </div>
             </div>
 
@@ -913,7 +918,6 @@ export default function TrainingPlannerPanel({
               })}
             </div>
           )}
-
           {selectedDay ? (
             <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
               <button style={S.button("primary")} onClick={() => setExecuteOpen(true)}>
@@ -924,6 +928,7 @@ export default function TrainingPlannerPanel({
               </button>
             </div>
           ) : null}
+          </div>
         </div>
       </div>
 
