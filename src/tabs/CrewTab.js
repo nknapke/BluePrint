@@ -175,54 +175,42 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast, deptOptions }) {
 
         </div>
 
-        <div
-          style={{
-            marginTop: 8,
-            display: "flex",
-            gap: 10,
-            flexWrap: "wrap",
-            alignItems: "center",
-            fontSize: 12,
-            fontWeight: 750,
-            opacity: 0.88,
-          }}
-        >
-          {isEditing ? (
-            <>
-              <select
-                value={edit.editCrewDept || ""}
-                onChange={(e) => edit.setEditCrewDept(e.target.value)}
-                style={{ ...S.select, width: 260, maxWidth: "100%" }}
-              >
-                <option value="">No Department</option>
-                {deptOptions.map((d) => (
-                  <option key={d} value={d}>
-                    {prettyTitle(d)}
-                  </option>
-                ))}
-              </select>
+        {isEditing ? (
+          <div
+            style={{
+              marginTop: 8,
+              display: "flex",
+              gap: 10,
+              flexWrap: "wrap",
+              alignItems: "center",
+              fontSize: 12,
+              fontWeight: 750,
+              opacity: 0.88,
+            }}
+          >
+            <select
+              value={edit.editCrewDept || ""}
+              onChange={(e) => edit.setEditCrewDept(e.target.value)}
+              style={{ ...S.select, width: 260, maxWidth: "100%" }}
+            >
+              <option value="">No Department</option>
+              {deptOptions.map((d) => (
+                <option key={d} value={d}>
+                  {prettyTitle(d)}
+                </option>
+              ))}
+            </select>
 
-              <select
-                value={edit.editCrewStatus}
-                onChange={(e) => edit.setEditCrewStatus(e.target.value)}
-                style={{ ...S.select, width: 160 }}
-              >
-                <option value="Active">Active</option>
-                <option value="Not Active">Not Active</option>
-              </select>
-            </>
-          ) : (
-            <>
-              <span style={{ opacity: 0.95 }}>
-                {prettyTitle(c.dept || "—")}
-              </span>
-              <span style={{ opacity: 0.55 }}>·</span>
-              <span style={{ opacity: 0.82 }}>
-                {c.active ? "Active" : "Not Active"}
-              </span>
-            </>
-          )}
-        </div>
+            <select
+              value={edit.editCrewStatus}
+              onChange={(e) => edit.setEditCrewStatus(e.target.value)}
+              style={{ ...S.select, width: 160 }}
+            >
+              <option value="Active">Active</option>
+              <option value="Not Active">Not Active</option>
+            </select>
+          </div>
+        ) : null}
       </div>
 
       <div
