@@ -30,6 +30,93 @@ function clampText(s, n = 180) {
   return t.slice(0, n - 1) + "…";
 }
 
+function parseReasoningSummary(summary) {
+  const text = String(summary || "");
+  if (!text.includes("=")) return null;
+  const getNum = (pattern) => {
+    const match = text.match(pattern);
+    if (!match) return null;
+    const value = Number(match[1]);
+    return Number.isNaN(value) ? null : value;
+  };
+  const score = getNum(/score=([0-9.]+)/i);
+  const people = getNum(/people=([0-9]+)/i);
+  const extreme = getNum(/extreme=([0-9]+)/i);
+  const windowDays = getNum(/window=([0-9]+)/i);
+  if (score === null && people === null && extreme === null && windowDays === null) {
+    return null;
+  }
+  return { score, people, extreme, windowDays };
+}
+
+function formatReasoningSummaryParts(day) {
+  const parsed = parseReasoningSummary(day?.reasoning_summary);
+  const priorityScore =
+    day?.priority_score ?? (parsed ? parsed.score : null);
+  const lookAheadDays =
+    day?.look_ahead_window_days ?? (parsed ? parsed.windowDays : null);
+  const requiredCrew = day?.required_crew_count ?? null;
+  const updateCrew =
+    day?.update_crew_count ??
+    day?.people_affected ??
+    (parsed ? parsed.people : null);
+  const overdueCrew = day?.overdue_crew_count ?? null;
+  const neverTrained = day?.never_trained_count ?? null;
+  const extremeOverdue =
+    day?.extreme_overdue_crew_count ?? (parsed ? parsed.extreme : null);
+
+  const fmtScore =
+    priorityScore === null
+      ? null
+      : Number.isInteger(priorityScore)
+      ? priorityScore
+      : Number(priorityScore).toFixed(1);
+
+  const headline =
+    fmtScore === null
+      ? "Highest impact for this day's crew"
+      : `Highest impact for this day's crew: Priority score ${fmtScore}`;
+
+  const lines = [];
+  if (requiredCrew !== null) {
+    lines.push(
+      `${requiredCrew} Crew Member${requiredCrew === 1 ? "" : "s"} Required`
+    );
+  }
+  if (overdueCrew !== null) {
+    lines.push(
+      `${overdueCrew} Crew Member${
+        overdueCrew === 1 ? "" : "s"
+      } Currently Out of Date on This Training`
+    );
+  } else if (updateCrew !== null) {
+    lines.push(
+      `${updateCrew} Crew Member${
+        updateCrew === 1 ? "" : "s"
+      } Will Receive a Signoff/Update`
+    );
+  }
+  if (neverTrained !== null) {
+    lines.push(
+      `${neverTrained} Crew Member${neverTrained === 1 ? "" : "s"} With No Prior Training History in This Group`
+    );
+  }
+  if (extremeOverdue !== null) {
+    lines.push(
+      `${extremeOverdue} Crew Member${
+        extremeOverdue === 1 ? "" : "s"
+      } ${extremeOverdue === 1 ? "is" : "are"} 30+ Days Overdue`
+    );
+  }
+  // Intentionally omit look-ahead window from the UI summary.
+
+  if (lines.length === 0) {
+    return { headline: clampText(day?.reasoning_summary), lines: [] };
+  }
+
+  return { headline, lines };
+}
+
 function statusMeta(status) {
   const label = String(status || "Open");
   const normalized = label.toLowerCase();
@@ -167,7 +254,7 @@ export default function TrainingPlannerPanel({
 
       try {
         const rows = await supabaseGet(
-          `/rest/v1/training_plan_days?select=id,plan_date,training_group_id,status,people_affected,extreme_overdue_count,reasoning_summary&plan_id=eq.${planId}&order=plan_date.asc`
+          `/rest/v1/training_plan_days?select=id,plan_date,training_group_id,status,people_affected,extreme_overdue_count,reasoning_summary,required_crew_count,update_crew_count,overdue_crew_count,never_trained_count,extreme_overdue_crew_count,look_ahead_window_days,priority_score,scheduled_crew_count&plan_id=eq.${planId}&order=plan_date.asc`
         );
         setDays(rows || []);
       } catch (e) {
@@ -423,9 +510,36 @@ export default function TrainingPlannerPanel({
             <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
               {days.map((d) => {
                 const g = trainingGroupById.get(d.training_group_id);
+                const hasGroup = Boolean(d.training_group_id);
+                const scheduledCrewCount =
+                  d.scheduled_crew_count ?? d.scheduledCrewCount ?? null;
+                const noCrewScheduled =
+                  scheduledCrewCount !== null &&
+                  Number(scheduledCrewCount) === 0;
+                const noRequiredTraining = Number(d.people_affected || 0) === 0;
                 const isSelected = d.id === selectedDayId;
                 const meta = statusMeta(d.status);
                 const badgeStyle = meta.tone ? S.badge(meta.tone) : S.badge();
+                const groupPill = {
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "4px 8px",
+                  borderRadius: 999,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "rgba(255,255,255,0.08)",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: "0.01em",
+                  color: "rgba(255,255,255,0.88)",
+                };
+                const labelChip = {
+                  fontSize: 11,
+                  fontWeight: 800,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  color: "rgba(255,255,255,0.6)",
+                };
 
                 return (
                   <button
@@ -453,26 +567,119 @@ export default function TrainingPlannerPanel({
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 10,
+                        gap: 12,
                         flexWrap: "wrap",
+                        justifyContent: "space-between",
                       }}
                     >
-                      <div style={{ fontWeight: 800 }}>
+                      <div
+                        style={{
+                          fontWeight: 900,
+                          fontSize: 14.5,
+                          color: "rgba(255,255,255,0.92)",
+                        }}
+                      >
                         {prettyDate(d.plan_date)}
                       </div>
-                      <span style={badgeStyle}>{meta.label}</span>
-                      <span style={S.badge("warn")}>
-                        {d.people_affected} affected
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <span style={badgeStyle}>{meta.label}</span>
+                        <span style={S.badge("warn")}>
+                          {d.people_affected} affected
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={labelChip}>Group</span>
+                      <span style={groupPill}>
+                        {g?.name || "No required training"}
                       </span>
                     </div>
 
-                    <div style={{ fontSize: 12, opacity: 0.78 }}>
-                      {g?.name || "No group"}
-                    </div>
-
-                    {d.reasoning_summary && (
-                      <div style={{ fontSize: 12, opacity: 0.65 }}>
-                        {clampText(d.reasoning_summary)}
+                    {(d.reasoning_summary ||
+                      noRequiredTraining ||
+                      noCrewScheduled) && (
+                      <div
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 12,
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          background: "rgba(255,255,255,0.06)",
+                          display: "grid",
+                          gap: 4,
+                        }}
+                      >
+                        <span style={labelChip}>REASON</span>
+                        {noCrewScheduled ? (
+                          <div
+                            style={{
+                              fontSize: 12.5,
+                              color: "rgba(255,255,255,0.82)",
+                              lineHeight: 1.35,
+                            }}
+                          >
+                            No Crew Members Scheduled for this Day
+                          </div>
+                        ) : hasGroup && !noRequiredTraining ? (
+                          (() => {
+                            const { headline, lines } =
+                              formatReasoningSummaryParts(d);
+                            return (
+                              <div
+                                style={{
+                                  display: "grid",
+                                  gap: 4,
+                                  fontSize: 12.5,
+                                  color: "rgba(255,255,255,0.82)",
+                                  lineHeight: 1.35,
+                                }}
+                              >
+                                <div>{headline}</div>
+                                {lines.length > 0 && (
+                                  <div
+                                    style={{
+                                      display: "grid",
+                                      gap: 2,
+                                      paddingLeft: 10,
+                                    }}
+                                  >
+                                    {lines.map((line) => (
+                                      <div
+                                        key={line}
+                                        style={{
+                                          display: "flex",
+                                          gap: 6,
+                                          alignItems: "flex-start",
+                                        }}
+                                      >
+                                        <span
+                                          style={{
+                                            color: "rgba(255,255,255,0.55)",
+                                            lineHeight: 1.2,
+                                          }}
+                                        >
+                                          •
+                                        </span>
+                                        <span>{line}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <div
+                            style={{
+                              fontSize: 12.5,
+                              color: "rgba(255,255,255,0.82)",
+                              lineHeight: 1.35,
+                            }}
+                          >
+                            All Trainings Complete for Today&apos;s Crew
+                            Members — Optional Trainings Today by Request
+                          </div>
+                        )}
                       </div>
                     )}
                   </button>
