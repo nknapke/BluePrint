@@ -1,9 +1,11 @@
+import type { CSSProperties } from "react";
+
 type ChipProps = {
   text: string;
   onClear: () => void;
 };
 
-const CHIP_STYLE = {
+const CHIP_STYLE: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 8,
@@ -15,12 +17,12 @@ const CHIP_STYLE = {
   fontSize: 12,
   fontWeight: 800,
   userSelect: "none",
-  whiteSpace: "nowrap" as const,
+  whiteSpace: "nowrap",
 };
 
-const CHIP_TEXT_STYLE = { opacity: 0.92 };
+const CHIP_TEXT_STYLE: CSSProperties = { opacity: 0.92 };
 
-const CHIP_BUTTON_STYLE = {
+const CHIP_BUTTON_STYLE: CSSProperties = {
   width: 20,
   height: 20,
   borderRadius: 999,

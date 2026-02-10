@@ -1,10 +1,12 @@
+import type { CSSProperties } from "react";
+
 type IdMetaProps = {
   id: string | number;
   label?: string;
   title?: string;
 };
 
-const ID_META_STYLE = {
+const ID_META_STYLE: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   padding: "5px 9px",
@@ -14,7 +16,7 @@ const ID_META_STYLE = {
   fontSize: 12,
   fontWeight: 800,
   color: "rgba(255,255,255,0.72)",
-  whiteSpace: "nowrap" as const,
+  whiteSpace: "nowrap",
 };
 
 export function IdMeta({ id, label = "#", title }: IdMetaProps) {

@@ -1,10 +1,12 @@
+import type { CSSProperties } from "react";
+
 type DotCountProps = {
   color: string;
   count: number;
   title?: string;
 };
 
-const DOT_COUNT_STYLE = {
+const DOT_COUNT_STYLE: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 7,
@@ -15,10 +17,10 @@ const DOT_COUNT_STYLE = {
   fontSize: 12,
   fontWeight: 800,
   color: "rgba(255,255,255,0.88)",
-  whiteSpace: "nowrap" as const,
+  whiteSpace: "nowrap",
 };
 
-const DOT_STYLE = {
+const DOT_STYLE: CSSProperties = {
   width: 8,
   height: 8,
   borderRadius: 999,

@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 type SegmentedOption = {
   value: string;
   label: string;
@@ -9,7 +11,7 @@ type SegmentedProps = {
   options: SegmentedOption[];
 };
 
-const SEGMENTED_STYLE = {
+const SEGMENTED_STYLE: CSSProperties = {
   display: "inline-flex",
   padding: 4,
   borderRadius: 14,
@@ -18,7 +20,7 @@ const SEGMENTED_STYLE = {
   boxShadow: "0 12px 30px rgba(0,0,0,0.16)",
 };
 
-const SEGMENTED_BUTTON_STYLE = {
+const SEGMENTED_BUTTON_STYLE: CSSProperties = {
   padding: "8px 12px",
   borderRadius: 12,
   border: "1px solid transparent",
@@ -27,7 +29,7 @@ const SEGMENTED_BUTTON_STYLE = {
   letterSpacing: "-0.01em",
   cursor: "pointer",
   transition: "background 160ms ease, transform 120ms ease",
-  whiteSpace: "nowrap" as const,
+  whiteSpace: "nowrap",
 };
 
 export function Segmented({ value, onChange, options }: SegmentedProps) {
