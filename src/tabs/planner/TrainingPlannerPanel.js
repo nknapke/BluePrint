@@ -15,6 +15,15 @@ function prettyDate(iso) {
   });
 }
 
+function shortDate(iso) {
+  if (!iso) return "";
+  const d = new Date(`${iso}T00:00:00`);
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function todayLocalISO() {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -80,32 +89,30 @@ function formatReasoningSummaryParts(day) {
   const lines = [];
   if (requiredCrew !== null) {
     lines.push(
-      `${requiredCrew} Crew Member${requiredCrew === 1 ? "" : "s"} Required`
+      `${requiredCrew} Crew Member${requiredCrew === 1 ? "" : "s"} - Required`
     );
   }
   if (overdueCrew !== null) {
     lines.push(
       `${overdueCrew} Crew Member${
         overdueCrew === 1 ? "" : "s"
-      } Currently Out of Date on This Training`
+      } - Out of Date`
     );
   } else if (updateCrew !== null) {
     lines.push(
-      `${updateCrew} Crew Member${
-        updateCrew === 1 ? "" : "s"
-      } Will Receive a Signoff/Update`
+      `${updateCrew} Crew Member${updateCrew === 1 ? "" : "s"} - Out of Date`
     );
   }
   if (neverTrained !== null) {
     lines.push(
-      `${neverTrained} Crew Member${neverTrained === 1 ? "" : "s"} With No Prior Training History in This Group`
+      `${neverTrained} Crew Member${neverTrained === 1 ? "" : "s"} - No Prior Training`
     );
   }
   if (extremeOverdue !== null) {
     lines.push(
       `${extremeOverdue} Crew Member${
         extremeOverdue === 1 ? "" : "s"
-      } ${extremeOverdue === 1 ? "is" : "are"} 30+ Days Overdue`
+      } - 30+ Days Overdue`
     );
   }
   // Intentionally omit look-ahead window from the UI summary.
@@ -277,7 +284,7 @@ export default function TrainingPlannerPanel({
 
       try {
         const rows = await supabaseGet(
-          `/rest/v1/v_plan_day_effective_attendees?select=attendee_id,crew_id,included,source&day_id=eq.${selectedDayId}`
+          `/rest/v1/v_plan_day_effective_attendees?select=attendee_id,crew_id,included,source,track_id,track_name,is_out_of_date,no_prior_training,is_extreme_overdue,simulated_last_completed&day_id=eq.${selectedDayId}`
         );
 
         const crewIds = rows.map((r) => r.crew_id).join(",");
@@ -300,6 +307,12 @@ export default function TrainingPlannerPanel({
             crewStatus: crewMap.get(r.crew_id)?.status || "",
             included: r.included,
             source: r.source,
+            trackId: r.track_id,
+            trackName: r.track_name || "",
+            isOutOfDate: r.is_out_of_date ?? false,
+            noPriorTraining: r.no_prior_training ?? false,
+            isExtremeOverdue: r.is_extreme_overdue ?? false,
+            simulatedLastCompleted: r.simulated_last_completed || null,
           }))
         );
       } catch (e) {
@@ -518,8 +531,6 @@ export default function TrainingPlannerPanel({
                   Number(scheduledCrewCount) === 0;
                 const noRequiredTraining = Number(d.people_affected || 0) === 0;
                 const isSelected = d.id === selectedDayId;
-                const meta = statusMeta(d.status);
-                const badgeStyle = meta.tone ? S.badge(meta.tone) : S.badge();
                 const groupPill = {
                   display: "inline-flex",
                   alignItems: "center",
@@ -540,6 +551,18 @@ export default function TrainingPlannerPanel({
                   letterSpacing: "0.08em",
                   color: "rgba(255,255,255,0.6)",
                 };
+                const requirementBadge = (() => {
+                  if (noCrewScheduled) {
+                    return { label: "No Crew", tone: "bad" };
+                  }
+                  if (noRequiredTraining) {
+                    return { label: "Optional", tone: "info" };
+                  }
+                  return { label: "Required", tone: "warn" };
+                })();
+                const requirementStyle = requirementBadge.tone
+                  ? S.badge(requirementBadge.tone)
+                  : S.badge();
 
                 return (
                   <button
@@ -582,9 +605,8 @@ export default function TrainingPlannerPanel({
                         {prettyDate(d.plan_date)}
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <span style={badgeStyle}>{meta.label}</span>
-                        <span style={S.badge("warn")}>
-                          {d.people_affected} affected
+                        <span style={requirementStyle}>
+                          {requirementBadge.label}
                         </span>
                       </div>
                     </div>
@@ -711,12 +733,6 @@ export default function TrainingPlannerPanel({
               </div>
             </div>
 
-            {selectedDay ? (
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <span style={S.badge("info")}>{attendeeCounts.included} in</span>
-                <span style={S.badge("warn")}>{attendeeCounts.excluded} out</span>
-              </div>
-            ) : null}
           </div>
 
           {!selectedDay ? (
@@ -761,8 +777,73 @@ export default function TrainingPlannerPanel({
                   >
                     <div>
                       <div style={{ fontWeight: 800 }}>{a.name}</div>
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>
-                        {a.source || "Auto"}
+                      <div
+                        style={{
+                          marginTop: 6,
+                          display: "grid",
+                          gap: 2,
+                          fontSize: 12,
+                          color: "rgba(255,255,255,0.72)",
+                        }}
+                      >
+                        {(() => {
+                          const lines = [
+                            { text: `Track: ${a.trackName || a.trackId || "Unknown"}` },
+                            a.isOutOfDate ? { text: "Out of Date" } : null,
+                            a.noPriorTraining
+                              ? { text: "No Prior Training History" }
+                              : null,
+                            a.isExtremeOverdue ? { text: "30+ Days Overdue" } : null,
+                          ].filter(Boolean);
+
+                          const isUpToDate =
+                            !a.isOutOfDate && !a.noPriorTraining && !a.isExtremeOverdue;
+
+                          if (isUpToDate) {
+                            const lastCompletedLabel = a.simulatedLastCompleted
+                              ? `Up to Date — Last completed ${shortDate(
+                                  a.simulatedLastCompleted
+                                )}`
+                              : "Up to Date";
+                            lines.push({
+                              text: lastCompletedLabel,
+                              tone: "good",
+                              bold: true,
+                            });
+                          }
+
+                          return lines.map((line) => {
+                            const text = typeof line === "string" ? line : line.text;
+                            const tone = typeof line === "string" ? null : line.tone;
+                            const bold = typeof line === "string" ? false : line.bold;
+                            const textStyle =
+                              tone === "good"
+                                ? { color: "rgba(120,255,180,0.95)" }
+                                : null;
+                            return (
+                              <div
+                                key={text}
+                                style={{
+                                  display: "flex",
+                                  gap: 6,
+                                  alignItems: "flex-start",
+                                }}
+                              >
+                                <span style={{ color: "rgba(255,255,255,0.5)" }}>
+                                  •
+                                </span>
+                                <span
+                                  style={{
+                                    ...(textStyle || {}),
+                                    fontWeight: bold ? 700 : undefined,
+                                  }}
+                                >
+                                  {text}
+                                </span>
+                              </div>
+                            );
+                          });
+                        })()}
                       </div>
                     </div>
 
