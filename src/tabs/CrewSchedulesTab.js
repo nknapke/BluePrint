@@ -5,6 +5,7 @@ import { Segmented } from "../components/ui/Segmented";
 import useRosterData from "./planner/useRosterData";
 import CrewSchedulesGrid from "./planner/CrewSchedulesGrid";
 import CrewSchedulesDayView from "./planner/CrewSchedulesDayView";
+import MasterScheduleImportModal from "./planner/MasterScheduleImportModal";
 import { isoDate } from "../utils/dates";
 
 export default function CrewSchedulesTab({
@@ -13,6 +14,7 @@ export default function CrewSchedulesTab({
   locationId = null,
   supabaseGet,
   supabasePost,
+  supabaseDelete,
   tracks = /** @type {import("../types/domain").Track[]} */ ([]),
 }) {
   const locId = activeLocationId ?? locationId ?? null;
@@ -21,6 +23,9 @@ export default function CrewSchedulesTab({
   const [crewViewMode, setCrewViewMode] = useState("grid"); // grid | day
   const [crewSearch, setCrewSearch] = useState("");
   const [dayISO, setDayISO] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
+  const [clearError, setClearError] = useState("");
 
   /* ---------- roster hook ---------- */
   const roster = useRosterData({
@@ -124,6 +129,28 @@ export default function CrewSchedulesTab({
 
   const inputStyle = { ...S.input, height: 36, maxWidth: 360 };
 
+  const clearWeekAssignments = async () => {
+    if (!locId || !roster?.startISO || !roster?.endISO || clearBusy) return;
+    const ok = window.confirm(
+      `Clear all assignments for ${roster.startISO} to ${roster.endISO}? This cannot be undone.`
+    );
+    if (!ok) return;
+    setClearBusy(true);
+    setClearError("");
+    try {
+      await supabaseDelete(
+        `/rest/v1/work_roster_assignments?location_id=eq.${Number(
+          locId
+        )}&work_date=gte.${roster.startISO}&work_date=lte.${roster.endISO}`
+      );
+      roster.refreshAssignments?.(true);
+    } catch (e) {
+      setClearError(String(e?.message || e));
+    } finally {
+      setClearBusy(false);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* Hero */}
@@ -218,6 +245,19 @@ export default function CrewSchedulesTab({
             </button>
           </div>
 
+          <button
+            style={S.button("ghost", clearBusy || roster?.savePaused)}
+            onClick={clearWeekAssignments}
+            disabled={clearBusy || roster?.savePaused}
+            title="Clear all assignments for this week"
+          >
+            {clearBusy ? "Clearing…" : "Clear week"}
+          </button>
+
+          <button style={S.button("subtle")} onClick={() => setImportOpen(true)}>
+            Import Master Schedule
+          </button>
+
           <div
             style={{
               flex: "1 1 320px",
@@ -241,8 +281,8 @@ export default function CrewSchedulesTab({
           ) : null}
         </div>
 
-        {crewViewMode === "day" ? (
-          <div style={{ ...controlRow, marginTop: 10 }}>
+      {crewViewMode === "day" ? (
+        <div style={{ ...controlRow, marginTop: 10 }}>
             <div
               style={{
                 display: "inline-flex",
@@ -284,6 +324,12 @@ export default function CrewSchedulesTab({
         ) : null}
       </div>
 
+      {clearError ? (
+        <div style={{ ...S.helper, color: "rgba(255,120,120,0.95)" }}>
+          {clearError}
+        </div>
+      ) : null}
+
       {/* View render */}
       {crewViewMode === "grid" ? (
         <CrewSchedulesGrid
@@ -301,6 +347,17 @@ export default function CrewSchedulesTab({
           tracks={tracks}
         />
       )}
+
+      <MasterScheduleImportModal
+        S={S}
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        locId={locId}
+        supabaseGet={supabaseGet}
+        supabasePost={supabasePost}
+        supabaseDelete={supabaseDelete}
+        tracks={tracks}
+      />
     </div>
   );
 }

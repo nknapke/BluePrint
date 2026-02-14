@@ -1996,6 +1996,7 @@ export default function App() {
               supabaseGet={supabaseGet}
               supabasePost={supabasePost}
               supabasePatch={supabasePatch}
+              supabaseDelete={supabaseDelete}
               trainingGroups={trainingGroups}
               tracks={tracks}
               refreshSignal={plannerRefreshSignal}
@@ -2008,6 +2009,7 @@ export default function App() {
               activeLocationId={activeLocationId}
               supabaseGet={supabaseGet}
               supabasePost={supabasePost}
+              supabaseDelete={supabaseDelete}
               tracks={tracks}
             />
           )}

@@ -103,7 +103,7 @@ export default function useRosterData({
   }, [canRun, location, supabaseGet]);
 
   const loadAssignmentsForRange = useCallback(
-    async (rangeStartISO, rangeEndISO) => {
+    async (rangeStartISO, rangeEndISO, opts = {}) => {
       if (!canRun) return;
 
       const rs = safeISODate(rangeStartISO);
@@ -123,6 +123,7 @@ export default function useRosterData({
 
         const rows = await supabaseGet(path, {
           cacheTag: `roster:assign:${location}:${rs}:${re}`,
+          ...opts,
         });
 
         const next = new Map();
@@ -391,6 +392,15 @@ export default function useRosterData({
     setStartISO((prev) => addDaysISO(prev, dw * rangeDays));
   }, [rangeDays]);
 
+  const refreshAssignments = useCallback((force = false) => {
+    if (!canRun) return;
+    if (!startISO || !endISO) return;
+    if (force) {
+      setAssignMap(new Map());
+    }
+    loadAssignmentsForRange(startISO, endISO, force ? { bypassCache: true } : {});
+  }, [canRun, startISO, endISO, loadAssignmentsForRange]);
+
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -421,6 +431,7 @@ export default function useRosterData({
     clearDay,
     copyPreviousWeek,
     shiftWeek,
+    refreshAssignments,
 
     // saving status
     isSaving,
