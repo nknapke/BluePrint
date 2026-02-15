@@ -235,6 +235,13 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
         : null,
     [roster]
   );
+  const setWorkingFor = useCallback(
+    (d, id, showId, value) =>
+      typeof roster?.setWorkingFor === "function"
+        ? roster.setWorkingFor(d, id, showId, value)
+        : null,
+    [roster]
+  );
 
   const getShift =
     typeof roster?.getShift === "function" ? roster.getShift : () => null;
@@ -380,15 +387,36 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
 
   const trackSelect = {
     ...S.select,
-    height: 26,
+    height: "100%",
     minWidth: 0,
     width: "100%",
-    borderRadius: 999,
-    padding: "2px 26px 2px 10px",
+    borderRadius: 9,
+    padding: "0 26px",
     fontSize: 12,
     fontWeight: 700,
+    textAlign: "center",
+    textAlignLast: "center",
     background: "rgba(10,15,25,0.55)",
     border: "1px solid rgba(255,255,255,0.18)",
+    boxSizing: "border-box",
+  };
+  const clearTrackButton = {
+    position: "absolute",
+    top: 3,
+    right: 3,
+    width: 14,
+    height: 14,
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.35)",
+    background: "rgba(8,12,20,0.82)",
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 10,
+    fontWeight: 900,
+    lineHeight: "14px",
+    padding: 0,
+    display: "grid",
+    placeItems: "center",
+    zIndex: 2,
   };
 
   return (
@@ -610,8 +638,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                           {days.map((d) => {
                             const shift = getShift(d, c.id) || {};
                             const slots = showSlotsForDate(d);
-                            const hasShows = slots.some((s) => s?.kind === "show");
-                            const isAnyWorking = slots.some((show, idx) => {
+                            const isAnyWorking = slots.some((show) => {
                               const canUse = show?.kind === "show";
                               if (!canUse) return false;
                               return isWorking(d, c.id, show?.show?.id ?? null);
@@ -769,7 +796,6 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
 
                           {days.flatMap((d) => {
                             const slots = showSlotsForDate(d);
-                            const hasShows = showsForDate(d).length > 0;
                             return slots.map((slot, idx) => {
                               const canUse = slot?.kind === "show";
                               const showId = slot?.show?.id ?? null;
@@ -803,6 +829,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                                   }}
                                   style={{
                                     ...cellBase,
+                                    padding: working ? 0 : cellBase.padding,
                                     background: !canUse
                                       ? "rgba(255,255,255,0.015)"
                                       : working
@@ -834,45 +861,71 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                                   }}
                                 >
                                   {working ? (
-                                    <select
-                                      value={
-                                        trackId != null &&
-                                        Number.isFinite(trackId)
-                                          ? String(trackId)
-                                          : ""
-                                      }
-                                      onChange={(e) =>
-                                        setTrackFor(
-                                          d,
-                                          c.id,
-                                          showId,
-                                          e.target.value
-                                        )
-                                      }
-                                      onMouseDown={(e) => e.stopPropagation()}
-                                      onClick={(e) => e.stopPropagation()}
-                                      onMouseEnter={(e) => e.stopPropagation()}
-                                      disabled={savePaused || !canUse}
-                                      title={trackLabel || "No track"}
-                                      style={
-                                        trackGlow
-                                          ? {
-                                              ...trackSelect,
-                                              border: `1px solid ${trackGlow.border}`,
-                                              boxShadow: `0 0 0 1px ${trackGlow.inset} inset, 0 6px 14px ${trackGlow.shadow}`,
-                                              background:
-                                                "rgba(12,16,26,0.72)",
-                                            }
-                                          : trackSelect
-                                      }
-                                    >
-                                      <option value="">No track</option>
-                                      {trackOptions.map((t) => (
-                                        <option key={t.id} value={t.id}>
-                                          {t.name}
-                                        </option>
-                                      ))}
-                                    </select>
+                                    <>
+                                      <select
+                                        value={
+                                          trackId != null &&
+                                          Number.isFinite(trackId)
+                                            ? String(trackId)
+                                            : ""
+                                        }
+                                        onChange={(e) =>
+                                          setTrackFor(
+                                            d,
+                                            c.id,
+                                            showId,
+                                            e.target.value
+                                          )
+                                        }
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onMouseEnter={(e) => e.stopPropagation()}
+                                        disabled={savePaused || !canUse}
+                                        title={trackLabel || "No track"}
+                                        style={
+                                          trackGlow
+                                            ? {
+                                                ...trackSelect,
+                                                border: `1px solid ${trackGlow.border}`,
+                                                boxShadow: `0 0 0 1px ${trackGlow.inset} inset, 0 6px 14px ${trackGlow.shadow}`,
+                                                background:
+                                                  "rgba(12,16,26,0.72)",
+                                              }
+                                            : trackSelect
+                                        }
+                                      >
+                                        <option value="">No track</option>
+                                        {trackOptions.map((t) => (
+                                          <option key={t.id} value={t.id}>
+                                            {t.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      {canUse ? (
+                                        <button
+                                          type="button"
+                                          onMouseDown={(e) => e.stopPropagation()}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setWorkingFor(d, c.id, showId, false);
+                                          }}
+                                          disabled={savePaused || !canUse}
+                                          title="Remove assignment"
+                                          aria-label="Remove assignment"
+                                          style={{
+                                            ...clearTrackButton,
+                                            cursor:
+                                              savePaused || !canUse
+                                                ? "not-allowed"
+                                                : "pointer",
+                                            opacity:
+                                              savePaused || !canUse ? 0.55 : 1,
+                                          }}
+                                        >
+                                          x
+                                        </button>
+                                      ) : null}
+                                    </>
                                   ) : null}
                                 </div>
                               );
