@@ -9,12 +9,31 @@ import {
 import { prettyDept } from "../../utils/strings";
 
 const EMPTY_ARRAY = [];
+const TIME_OPTIONS = Array.from({ length: 96 }, (_, i) => {
+  const total = i * 15;
+  let hour = Math.floor(total / 60);
+  const minute = total % 60;
+  const mer = hour >= 12 ? "PM" : "AM";
+  if (hour === 0) hour = 12;
+  if (hour > 12) hour -= 12;
+  return `${hour}:${String(minute).padStart(2, "0")} ${mer}`;
+});
 
 /** ---------- GRID ---------- */
 
 export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
-  const loading = !!(roster?.crewLoading || roster?.assignLoading);
-  const err = roster?.crewError || roster?.assignError || "";
+  const loading = !!(
+    roster?.crewLoading ||
+    roster?.assignLoading ||
+    roster?.showsLoading ||
+    roster?.shiftLoading
+  );
+  const err =
+    roster?.crewError ||
+    roster?.assignError ||
+    roster?.showsError ||
+    roster?.shiftError ||
+    "";
   const savePaused = !!roster?.savePaused;
 
   const [hoverCrewId, setHoverCrewId] = useState(null);
@@ -35,6 +54,122 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
   }, [roster?.dateList, startISO]);
 
   const todayISO = isoDate(new Date());
+
+  const showsForDate = useCallback(
+    (d) =>
+      typeof roster?.getShowsForDate === "function"
+        ? roster.getShowsForDate(d)
+        : [],
+    [roster]
+  );
+
+  const maxShows = useMemo(() => {
+    let max = 1;
+    for (const d of days) {
+      const count = showsForDate(d).length;
+      if (count > max) max = count;
+    }
+    return Math.min(4, Math.max(1, max));
+  }, [days, showsForDate]);
+
+  const showSlotsForDate = useCallback(
+    (d) => {
+      const list = showsForDate(d);
+      const trimmed = list.slice(0, maxShows);
+      const count = trimmed.length;
+      const slots = Array.from({ length: maxShows }, () => null);
+      const rightStart = Math.max(0, maxShows - count);
+      for (let i = 0; i < count; i += 1) {
+        slots[rightStart + i] = { kind: "show", show: trimmed[i] };
+      }
+      if (count < maxShows) {
+        const addIndex = Math.max(0, rightStart - 1);
+        slots[addIndex] = { kind: "add" };
+      }
+      return slots;
+    },
+    [showsForDate, maxShows]
+  );
+
+  const parseTimeInput = (value) => {
+    if (!value) return null;
+    const v = value.trim();
+    const ampm = v.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (ampm) {
+      let hour = Number(ampm[1]);
+      const minute = Number(ampm[2]);
+      const mer = ampm[3].toUpperCase();
+      if (mer === "PM" && hour < 12) hour += 12;
+      if (mer === "AM" && hour === 12) hour = 0;
+      return `${String(hour).padStart(2, "0")}:${String(minute).padStart(
+        2,
+        "0"
+      )}:00`;
+    }
+    const hm = v.match(/^(\d{1,2}):(\d{2})$/);
+    if (hm) {
+      const hour = Number(hm[1]);
+      const minute = Number(hm[2]);
+      if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+      return `${String(hour).padStart(2, "0")}:${String(minute).padStart(
+        2,
+        "0"
+      )}:00`;
+    }
+    return null;
+  };
+
+  const formatShowTime = (value) => {
+    if (!value) return "";
+    const [hh, mm] = String(value).split(":");
+    if (!hh || !mm) return value;
+    let hour = Number(hh);
+    const minute = Number(mm);
+    const mer = hour >= 12 ? "PM" : "AM";
+    if (hour === 0) hour = 12;
+    if (hour > 12) hour -= 12;
+    return `${hour}:${String(minute).padStart(2, "0")} ${mer}`;
+  };
+
+  const applyShift = (dateISO, crewId, startLabel, endLabel) => {
+    if (!roster?.setShiftFor || savePaused) return;
+    const start24 = startLabel ? parseTimeInput(startLabel) : null;
+    const end24 = endLabel ? parseTimeInput(endLabel) : null;
+    roster.setShiftFor(dateISO, crewId, start24, end24);
+  };
+
+  const promptShowTime = (seed = "") => {
+    const raw = window.prompt("Show time (e.g., 7:00 PM)", seed);
+    if (!raw) return null;
+    return parseTimeInput(raw);
+  };
+
+  const handleAddShow = async (dateISO) => {
+    if (savePaused) return;
+    if (typeof roster?.createShow !== "function") return;
+    const list = showsForDate(dateISO);
+    if (list.length >= 4) return;
+    const parsed = promptShowTime("");
+    if (!parsed) return;
+    await roster.createShow(dateISO, parsed, list.length + 1);
+  };
+
+  const handleEditShow = async (dateISO, show) => {
+    if (savePaused) return;
+    if (!show?.id || typeof roster?.updateShow !== "function") return;
+    const seed = formatShowTime(show.time);
+    const parsed = promptShowTime(seed);
+    if (!parsed) return;
+    await roster.updateShow(show.id, parsed);
+  };
+
+  const handleDeleteShow = async (dateISO, show) => {
+    if (savePaused) return;
+    if (!show?.id || typeof roster?.deleteShow !== "function") return;
+    const ok = window.confirm("Delete this show time and its assignments?");
+    if (!ok) return;
+    await roster.deleteShow(show.id, dateISO);
+  };
 
   const filteredCrew = useMemo(() => {
     const crew = roster?.crew ?? EMPTY_ARRAY;
@@ -78,26 +213,31 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
   };
 
   const isWorking = useCallback(
-    (d, id) =>
+    (d, id, showId) =>
       typeof roster?.isWorking === "function"
-        ? !!roster.isWorking(d, id)
+        ? !!roster.isWorking(d, id, showId)
         : false,
     [roster]
   );
 
   const getTrackId = useCallback(
-    (d, id) =>
-      typeof roster?.getTrackId === "function" ? roster.getTrackId(d, id) : null,
+    (d, id, showId) =>
+      typeof roster?.getTrackId === "function"
+        ? roster.getTrackId(d, id, showId)
+        : null,
     [roster]
   );
 
   const setTrackFor = useCallback(
-    (d, id, value) =>
+    (d, id, showId, value) =>
       typeof roster?.setTrackFor === "function"
-        ? roster.setTrackFor(d, id, value)
+        ? roster.setTrackFor(d, id, showId, value)
         : null,
     [roster]
   );
+
+  const getShift =
+    typeof roster?.getShift === "function" ? roster.getShift : () => null;
 
   const trackOptions = useMemo(() => {
     return (tracks || [])
@@ -124,28 +264,30 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
   /** ---------- paint logic ---------- */
 
   const paintCell = useCallback(
-    (dateISO, crewId, nextVal) => {
+    (dateISO, crewId, showId, nextVal) => {
       if (savePaused) return;
       roster?.setWorkingFor
-        ? roster.setWorkingFor(dateISO, crewId, nextVal)
-        : roster?.toggleCell?.(dateISO, crewId);
+        ? roster.setWorkingFor(dateISO, crewId, showId, nextVal)
+        : roster?.toggleCell?.(dateISO, crewId, showId);
     },
     [roster, savePaused]
   );
 
-  const beginDrag = (dateISO, crewId) => {
+  const beginDrag = (dateISO, crewId, showId) => {
+    if (!showId && showsForDate(dateISO).length) return;
     if (savePaused) return;
-    const current = isWorking(dateISO, crewId);
+    const current = isWorking(dateISO, crewId, showId);
     dragRef.current = {
       active: true,
       mode: !current,
     };
-    paintCell(dateISO, crewId, !current);
+    paintCell(dateISO, crewId, showId, !current);
   };
 
-  const dragOver = (dateISO, crewId) => {
+  const dragOver = (dateISO, crewId, showId) => {
     if (!dragRef.current.active) return;
-    paintCell(dateISO, crewId, dragRef.current.mode);
+    if (!showId && showsForDate(dateISO).length) return;
+    paintCell(dateISO, crewId, showId, dragRef.current.mode);
   };
 
   const endDrag = () => {
@@ -171,8 +313,9 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
   };
 
   const dayColMin = 120;
-  const gridTemplateColumns = `260px repeat(${days.length}, minmax(${dayColMin}px, 1fr))`;
-  const minGridWidth = 260 + days.length * (dayColMin + 14);
+  const totalCols = days.length * maxShows;
+  const gridTemplateColumns = `260px repeat(${totalCols}, minmax(${dayColMin}px, 1fr))`;
+  const minGridWidth = 260 + totalCols * (dayColMin + 14);
   const stickyOffset = 105;
   const headerWrap = {
     position: "sticky",
@@ -210,13 +353,25 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
   }, [syncHeaderScroll, days.length]);
 
   const cellBase = {
-    height: 34,
+    height: 44,
     borderRadius: 10,
     border: "1px solid rgba(255,255,255,0.08)",
     cursor: savePaused ? "not-allowed" : "pointer",
     transition:
       "transform 120ms ease, box-shadow 120ms ease, background 120ms ease",
     userSelect: "none",
+    display: "flex",
+    alignItems: "stretch",
+    justifyContent: "center",
+    padding: "6px",
+    position: "relative",
+  };
+
+  const timeCellBase = {
+    height: 28,
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.03)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -259,19 +414,24 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
         </div>
       )}
 
+
       {/* Sticky Header (synced to body scroll) */}
       <div style={headerWrap}>
         <div style={headerOuter}>
-          <div ref={headerRowRef} style={gridRow}>
-            <div />
+          <div ref={headerRowRef} style={{ display: "grid", gap: 8 }}>
+            <div style={gridRow}>
+              <div />
             {days.map((d) => {
               const isToday = d === todayISO;
+              const canAddShow =
+                showsForDate(d).length < 4 && !savePaused;
               return (
                 <div
                   key={d}
                   onMouseEnter={() => setHoverDate(d)}
                   onMouseLeave={() => setHoverDate(null)}
                   style={{
+                    gridColumn: `span ${maxShows}`,
                     borderRadius: 14,
                     padding: "10px",
                     textAlign: "center",
@@ -284,6 +444,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                       ? "1px solid rgba(0,122,255,0.45)"
                       : "1px solid rgba(255,255,255,0.08)",
                     transition: "background 120ms ease, border 120ms ease",
+                    position: "relative",
                   }}
                 >
                   <div style={{ fontSize: 13, fontWeight: 900 }}>
@@ -292,9 +453,113 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                   <div style={{ fontSize: 12, opacity: 0.6 }}>
                     {formatMonthDay(d)}
                   </div>
+                  {canAddShow ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddShow(d);
+                      }}
+                      style={{
+                        position: "absolute",
+                        top: 6,
+                        right: 8,
+                        width: 18,
+                        height: 18,
+                        borderRadius: 999,
+                        border: "1px solid rgba(255,255,255,0.18)",
+                        background: "rgba(255,255,255,0.06)",
+                        color: "rgba(255,255,255,0.85)",
+                        fontSize: 12,
+                        fontWeight: 900,
+                        lineHeight: "16px",
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: 0,
+                      }}
+                      title="Add show"
+                      aria-label="Add show"
+                    >
+                      +
+                    </button>
+                  ) : null}
                 </div>
               );
             })}
+            </div>
+
+            <div style={gridRow}>
+              <div />
+              {days.flatMap((d) => {
+                const slots = showSlotsForDate(d);
+                return slots.map((slot, idx) => {
+                  const isShow = slot?.kind === "show";
+                  const isAdd = slot?.kind === "add";
+                  const show = isShow ? slot.show : null;
+                  const label = isShow ? formatShowTime(show.time) : isAdd ? "Add show" : "";
+                  return (
+                    <div
+                      key={`${d}-show-${show?.id ?? `${slot?.kind}-${idx}`}`}
+                      onMouseEnter={() => setHoverDate(d)}
+                      onMouseLeave={() => setHoverDate(null)}
+                      style={{
+                        borderRadius: 12,
+                        padding: "8px 6px",
+                        textAlign: "center",
+                        background: isShow
+                          ? "rgba(255,255,255,0.06)"
+                          : "rgba(255,255,255,0.02)",
+                        border: isShow
+                          ? "1px solid rgba(255,255,255,0.14)"
+                          : "1px dashed rgba(255,255,255,0.08)",
+                        color: isShow
+                          ? "rgba(255,255,255,0.85)"
+                          : "rgba(255,255,255,0.45)",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: isAdd ? "pointer" : isShow ? "pointer" : "default",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                      }}
+                      onClick={() => {
+                        if (isShow) {
+                          handleEditShow(d, show);
+                        } else if (isAdd) {
+                          handleAddShow(d);
+                        }
+                      }}
+                    >
+                      <span>{label}</span>
+                      {isShow ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteShow(d, show);
+                          }}
+                          style={{
+                            marginLeft: 4,
+                            border: "none",
+                            background: "transparent",
+                            color: "rgba(255,255,255,0.5)",
+                            cursor: "pointer",
+                            fontSize: 12,
+                            fontWeight: 700,
+                          }}
+                          title="Delete show"
+                        >
+                          ×
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                });
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -339,108 +604,281 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                   people.map((c) => {
                     const rowHover = hoverCrewId === c.id;
                     return (
-                      <div key={c.id} style={{ ...gridRow, marginTop: 8 }}>
-                        <div
-                          onMouseEnter={() => setHoverCrewId(c.id)}
-                          onMouseLeave={() => setHoverCrewId(null)}
-                          style={{
-                            borderRadius: 12,
-                            padding: "10px 12px",
-                            background: rowHover
-                              ? "rgba(255,255,255,0.10)"
-                              : "rgba(255,255,255,0.03)",
-                            border: "1px solid rgba(255,255,255,0.08)",
-                          }}
-                        >
-                          <div style={{ fontWeight: 900 }}>{c.crew_name}</div>
-                          <div style={{ fontSize: 12, opacity: 0.6 }}>
-                            {prettyDept(c.home_department)}
-                          </div>
+                      <div key={c.id} style={{ marginTop: 8 }}>
+                        <div style={{ ...gridRow, marginBottom: 6 }}>
+                          <div />
+                          {days.map((d) => {
+                            const shift = getShift(d, c.id) || {};
+                            const slots = showSlotsForDate(d);
+                            const hasShows = slots.some((s) => s?.kind === "show");
+                            const isAnyWorking = slots.some((show, idx) => {
+                              const canUse = show?.kind === "show";
+                              if (!canUse) return false;
+                              return isWorking(d, c.id, show?.show?.id ?? null);
+                            });
+
+                            return (
+                              <div
+                                key={`${c.id}-${d}-time`}
+                                style={{
+                                  ...timeCellBase,
+                                  gridColumn: `span ${maxShows}`,
+                                  background: isAnyWorking
+                                    ? "rgba(255,255,255,0.05)"
+                                    : "rgba(255,255,255,0.02)",
+                                  border: isAnyWorking
+                                    ? "1px solid rgba(255,255,255,0.12)"
+                                    : "1px solid rgba(255,255,255,0.06)",
+                                }}
+                              >
+                                {isAnyWorking ? (
+                                  <div
+                                    style={{
+                                      display: "grid",
+                                      gridTemplateColumns: "1fr 1fr",
+                                      gap: 6,
+                                      width: "100%",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 4,
+                                      }}
+                                    >
+                                      <span
+                                        style={{
+                                          fontSize: 10,
+                                          fontWeight: 800,
+                                          opacity: 0.75,
+                                        }}
+                                      >
+                                        IN:
+                                      </span>
+                                      <select
+                                        value={
+                                          shift?.startTime
+                                            ? formatShowTime(shift.startTime)
+                                            : ""
+                                        }
+                                        onChange={(e) =>
+                                          applyShift(
+                                            d,
+                                            c.id,
+                                            e.target.value,
+                                            shift?.endTime
+                                              ? formatShowTime(shift.endTime)
+                                              : ""
+                                          )
+                                        }
+                                        style={{
+                                          ...S.select,
+                                          height: 24,
+                                          fontSize: 10,
+                                          padding: "2px 6px",
+                                          minWidth: 86,
+                                        }}
+                                        disabled={savePaused}
+                                      >
+                                        <option value="">—</option>
+                                        {TIME_OPTIONS.map((t) => (
+                                          <option key={t} value={t}>
+                                            {t}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 4,
+                                        justifyContent: "flex-end",
+                                      }}
+                                    >
+                                      <span
+                                        style={{
+                                          fontSize: 10,
+                                          fontWeight: 800,
+                                          opacity: 0.75,
+                                        }}
+                                      >
+                                        OUT:
+                                      </span>
+                                      <select
+                                        value={
+                                          shift?.endTime
+                                            ? formatShowTime(shift.endTime)
+                                            : ""
+                                        }
+                                        onChange={(e) =>
+                                          applyShift(
+                                            d,
+                                            c.id,
+                                            shift?.startTime
+                                              ? formatShowTime(shift.startTime)
+                                              : "",
+                                            e.target.value
+                                          )
+                                        }
+                                        style={{
+                                          ...S.select,
+                                          height: 24,
+                                          fontSize: 10,
+                                          padding: "2px 6px",
+                                          minWidth: 86,
+                                        }}
+                                        disabled={savePaused}
+                                      >
+                                        <option value="">—</option>
+                                        {TIME_OPTIONS.map((t) => (
+                                          <option key={t} value={t}>
+                                            {t}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
                         </div>
 
-                        {days.map((d) => {
-                          const working = isWorking(d, c.id);
-                          const trackId = getTrackId(d, c.id);
-                          const trackLabel =
-                            trackId != null && Number.isFinite(trackId)
-                              ? trackNameById.get(Number(trackId)) || ""
-                              : "";
-                          const trackHex =
-                            trackId != null && Number.isFinite(trackId)
-                              ? trackColorById.get(Number(trackId)) || ""
-                              : "";
-                          const trackGlow = trackGlowFromHex(trackHex);
-                          const hover = rowHover || hoverDate === d;
-
-                          return (
-                            <div
-                              key={`${c.id}-${d}`}
-                              onMouseDown={() => beginDrag(d, c.id)}
-                              onMouseEnter={() => {
-                                setHoverCrewId(c.id);
-                                setHoverDate(d);
-                                dragOver(d, c.id);
-                              }}
-                              style={{
-                              ...cellBase,
-                              background: working
-                                ? trackGlow
-                                  ? `linear-gradient(180deg, ${trackGlow.bg} 0%, rgba(255,255,255,0.02) 100%)`
-                                  : "linear-gradient(180deg, rgba(90,150,255,0.32) 0%, rgba(90,150,255,0.16) 100%)"
-                                : hover
-                                ? "rgba(255,255,255,0.05)"
-                                : "rgba(255,255,255,0.02)",
-                              border: working
-                                ? trackGlow
-                                  ? `1px solid ${trackGlow.border}`
-                                  : "1px solid rgba(90,150,255,0.40)"
-                                : "1px solid rgba(255,255,255,0.08)",
-                              boxShadow: trackGlow
-                                ? `0 0 0 1px ${trackGlow.inset} inset, 0 8px 20px ${trackGlow.shadow}`
-                                : hover
-                                ? "0 6px 16px rgba(0,0,0,0.25)"
-                                : "none",
-                              transform: hover ? "translateY(-1px)" : "none",
-                              opacity: savePaused ? 0.6 : 1,
+                        <div style={gridRow}>
+                          <div
+                            onMouseEnter={() => setHoverCrewId(c.id)}
+                            onMouseLeave={() => setHoverCrewId(null)}
+                            style={{
+                              borderRadius: 12,
+                              padding: "10px 12px",
+                              background: rowHover
+                                ? "rgba(255,255,255,0.10)"
+                                : "rgba(255,255,255,0.03)",
+                              border: "1px solid rgba(255,255,255,0.08)",
                             }}
                           >
-                            {working ? (
-                              <select
-                                value={
-                                  trackId != null && Number.isFinite(trackId)
-                                    ? String(trackId)
-                                    : ""
-                                }
-                                onChange={(e) =>
-                                  setTrackFor(d, c.id, e.target.value)
-                                }
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onClick={(e) => e.stopPropagation()}
-                                onMouseEnter={(e) => e.stopPropagation()}
-                                disabled={savePaused}
-                                title={trackLabel || "No track"}
-                                style={
-                                  trackGlow
-                                    ? {
-                                        ...trackSelect,
-                                        border: `1px solid ${trackGlow.border}`,
-                                        boxShadow: `0 0 0 1px ${trackGlow.inset} inset, 0 6px 14px ${trackGlow.shadow}`,
-                                        background: "rgba(12,16,26,0.72)",
-                                      }
-                                    : trackSelect
-                                }
-                              >
-                                  <option value="">No track</option>
-                                  {trackOptions.map((t) => (
-                                    <option key={t.id} value={t.id}>
-                                      {t.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : null}
+                            <div style={{ fontWeight: 900 }}>
+                              {c.crew_name}
                             </div>
-                          );
-                        })}
+                            <div style={{ fontSize: 12, opacity: 0.6 }}>
+                              {prettyDept(c.home_department)}
+                            </div>
+                          </div>
+
+                          {days.flatMap((d) => {
+                            const slots = showSlotsForDate(d);
+                            const hasShows = showsForDate(d).length > 0;
+                            return slots.map((slot, idx) => {
+                              const canUse = slot?.kind === "show";
+                              const showId = slot?.show?.id ?? null;
+                              const working = canUse
+                                ? isWorking(d, c.id, showId)
+                                : false;
+                              const trackId = canUse
+                                ? getTrackId(d, c.id, showId)
+                                : null;
+                              const trackLabel =
+                                trackId != null && Number.isFinite(trackId)
+                                  ? trackNameById.get(Number(trackId)) || ""
+                                  : "";
+                              const trackHex =
+                                trackId != null && Number.isFinite(trackId)
+                                  ? trackColorById.get(Number(trackId)) || ""
+                                  : "";
+                              const trackGlow = trackGlowFromHex(trackHex);
+                              const hover = rowHover || hoverDate === d;
+
+                              return (
+                                <div
+                                  key={`${c.id}-${d}-${showId ?? idx}`}
+                                  onMouseDown={() =>
+                                    canUse ? beginDrag(d, c.id, showId) : null
+                                  }
+                                  onMouseEnter={() => {
+                                    setHoverCrewId(c.id);
+                                    setHoverDate(d);
+                                    if (canUse) dragOver(d, c.id, showId);
+                                  }}
+                                  style={{
+                                    ...cellBase,
+                                    background: !canUse
+                                      ? "rgba(255,255,255,0.015)"
+                                      : working
+                                      ? trackGlow
+                                        ? `linear-gradient(180deg, ${trackGlow.bg} 0%, rgba(255,255,255,0.02) 100%)`
+                                        : "linear-gradient(180deg, rgba(90,150,255,0.32) 0%, rgba(90,150,255,0.16) 100%)"
+                                      : hover
+                                      ? "rgba(255,255,255,0.05)"
+                                      : "rgba(255,255,255,0.02)",
+                                    border: !canUse
+                                      ? "1px dashed rgba(255,255,255,0.06)"
+                                      : working
+                                      ? trackGlow
+                                        ? `1px solid ${trackGlow.border}`
+                                        : "1px solid rgba(90,150,255,0.40)"
+                                      : "1px solid rgba(255,255,255,0.08)",
+                                    boxShadow: trackGlow
+                                      ? `0 0 0 1px ${trackGlow.inset} inset, 0 8px 20px ${trackGlow.shadow}`
+                                      : hover
+                                      ? "0 6px 16px rgba(0,0,0,0.25)"
+                                      : "none",
+                                    transform: hover ? "translateY(-1px)" : "none",
+                                    opacity: savePaused ? 0.6 : 1,
+                                    cursor: !canUse
+                                      ? "default"
+                                      : savePaused
+                                      ? "not-allowed"
+                                      : "pointer",
+                                  }}
+                                >
+                                  {working ? (
+                                    <select
+                                      value={
+                                        trackId != null &&
+                                        Number.isFinite(trackId)
+                                          ? String(trackId)
+                                          : ""
+                                      }
+                                      onChange={(e) =>
+                                        setTrackFor(
+                                          d,
+                                          c.id,
+                                          showId,
+                                          e.target.value
+                                        )
+                                      }
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onMouseEnter={(e) => e.stopPropagation()}
+                                      disabled={savePaused || !canUse}
+                                      title={trackLabel || "No track"}
+                                      style={
+                                        trackGlow
+                                          ? {
+                                              ...trackSelect,
+                                              border: `1px solid ${trackGlow.border}`,
+                                              boxShadow: `0 0 0 1px ${trackGlow.inset} inset, 0 6px 14px ${trackGlow.shadow}`,
+                                              background:
+                                                "rgba(12,16,26,0.72)",
+                                            }
+                                          : trackSelect
+                                      }
+                                    >
+                                      <option value="">No track</option>
+                                      {trackOptions.map((t) => (
+                                        <option key={t.id} value={t.id}>
+                                          {t.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : null}
+                                </div>
+                              );
+                            });
+                          })}
+                        </div>
                       </div>
                     );
                   })}

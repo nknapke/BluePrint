@@ -131,6 +131,17 @@ function parseTimeToMinutes(value) {
   return hour * 60 + min;
 }
 
+function toSqlTime(value) {
+  const mins = parseTimeToMinutes(value);
+  if (mins == null) return null;
+  const hour = Math.floor(mins / 60);
+  const min = mins % 60;
+  return `${String(hour).padStart(2, "0")}:${String(min).padStart(
+    2,
+    "0"
+  )}:00`;
+}
+
 function toISODate(value) {
   if (!value) return null;
   const d = new Date(value);
@@ -216,28 +227,56 @@ function buildDayBlocks(rows, dateRowIdx, timeRowIdx) {
     const dateISO = toISODate(dateCols[i].date);
     if (!dateISO) continue;
 
-    let bestCol = null;
-    let bestTime = null;
+    const shows = [];
     for (let c = start; c <= end; c += 1) {
       const tVal = timeRow[c];
       if (!isTimeLike(tVal)) continue;
       const mins = parseTimeToMinutes(tVal);
-      if (mins == null) continue;
-      if (bestTime == null || mins < bestTime) {
-        bestTime = mins;
-        bestCol = c;
-      }
+      const sqlTime = toSqlTime(tVal);
+      shows.push({
+        col: c,
+        timeRaw: tVal,
+        time: sqlTime,
+        mins,
+      });
     }
-    if (bestCol == null) {
+
+    if (!shows.length) {
+      let fallbackCol = null;
       for (let c = start; c <= end; c += 1) {
         if ((timeRow[c] || "").trim()) {
-          bestCol = c;
+          fallbackCol = c;
           break;
         }
       }
+      if (fallbackCol == null) fallbackCol = start;
+      shows.push({
+        col: fallbackCol,
+        timeRaw: "",
+        time: null,
+        mins: null,
+      });
     }
 
-    blocks.push({ dateISO, startCol: start, endCol: end, showCol: bestCol });
+    shows.sort((a, b) => {
+      if (a.mins == null && b.mins == null) return a.col - b.col;
+      if (a.mins == null) return 1;
+      if (b.mins == null) return -1;
+      if (a.mins !== b.mins) return a.mins - b.mins;
+      return a.col - b.col;
+    });
+
+    const normalizedShows = shows.map((s, idx) => ({
+      ...s,
+      sortOrder: idx + 1,
+    }));
+
+    blocks.push({
+      dateISO,
+      startCol: start,
+      endCol: end,
+      shows: normalizedShows,
+    });
   }
   return blocks;
 }
@@ -277,6 +316,7 @@ export default function MasterScheduleImportModal({
   S,
   open,
   onClose,
+  onImported,
   locId,
   supabaseGet,
   supabasePost,
@@ -353,14 +393,11 @@ export default function MasterScheduleImportModal({
     [rows, dataStartRowIdx, nameColIdx]
   );
 
-  const showCols = useMemo(
-    () => dayBlocks.map((b) => b.showCol).filter((v) => v !== null),
-    [dayBlocks]
-  );
-
   const crewExtract = useMemo(() => {
     if (!rows.length || dataStartRowIdx == null) return null;
     const assignments = [];
+    const showInstances = new Map();
+    const shiftEntries = new Map();
     const codesFound = new Set();
     const crewNames = new Set();
     const unknownCodes = new Set();
@@ -386,48 +423,105 @@ export default function MasterScheduleImportModal({
       }
 
       dayBlocks.forEach((b) => {
-        const cols = [];
-        if (b.showCol != null) {
-          cols.push(b.showCol);
-          if (b.showCol + 1 <= b.endCol) cols.push(b.showCol + 1);
-        } else {
-          cols.push(b.startCol);
-          if (b.startCol + 1 <= b.endCol) cols.push(b.startCol + 1);
-        }
+        const showList =
+          Array.isArray(b.shows) && b.shows.length
+            ? b.shows
+            : [{ col: b.startCol, time: null, sortOrder: 1 }];
 
-        let code = null;
-        for (let r = block.start + 1; r <= block.end; r += 1) {
-          const row = rows[r] || [];
-          for (const col of cols) {
-            const raw = (row[col] || "").trim();
-            if (!raw) continue;
-            if (!isLikelyCode(raw)) continue;
-            code = raw.toUpperCase();
-            break;
+        // Extract work time range (IN/OUT) from the crew block
+        const timeCols = showList
+          .map((s) => s.col)
+          .filter((v) => Number.isFinite(v))
+          .sort((a, b) => a - b);
+        let startTime = null;
+        let endTime = null;
+        if (timeCols.length) {
+          for (let r = block.start; r <= block.end; r += 1) {
+            const row = rows[r] || [];
+            for (const col of timeCols) {
+              const raw = (row[col] || "").trim();
+              if (!raw) continue;
+              if (!isTimeLike(raw)) continue;
+              const sqlTime = toSqlTime(raw);
+              if (!sqlTime) continue;
+              if (!startTime) {
+                startTime = sqlTime;
+              } else if (!endTime) {
+                endTime = sqlTime;
+              }
+              if (startTime && endTime) break;
+            }
+            if (startTime && endTime) break;
           }
-          if (code) break;
         }
 
-        if (!code) return;
-        codesFound.add(code);
-        const mappedTrack = codeMap[code];
-        if (!mappedTrack) {
-          unknownCodes.add(code);
-          return;
+        if ((startTime || endTime) && crewId) {
+          const shiftKey = `${b.dateISO}|${crewId}`;
+          shiftEntries.set(shiftKey, {
+            location_id: Number(locId),
+            work_date: b.dateISO,
+            crew_id: Number(crewId),
+            start_time: startTime,
+            end_time: endTime,
+          });
         }
-        if (!crewId) return;
-        assignments.push({
-          location_id: Number(locId),
-          work_date: b.dateISO,
-          crew_id: Number(crewId),
-          is_working: true,
-          track_id: Number(mappedTrack),
+
+        showList.forEach((show, showIdx) => {
+          const cols = [];
+          const baseCol = Number.isFinite(show.col) ? show.col : b.startCol;
+          cols.push(baseCol);
+          // Only search this show column for a position code.
+
+          let code = null;
+          for (let r = block.start + 1; r <= block.end; r += 1) {
+            const row = rows[r] || [];
+            for (const col of cols) {
+              const raw = (row[col] || "").trim();
+              if (!raw) continue;
+              if (!isLikelyCode(raw)) continue;
+              code = raw.toUpperCase();
+              break;
+            }
+            if (code) break;
+          }
+
+          if (!code) return;
+          codesFound.add(code);
+          const mappedTrack = codeMap[code];
+          if (!mappedTrack) {
+            unknownCodes.add(code);
+            return;
+          }
+          if (!crewId) return;
+
+          const showTime = show.time || "00:00:00";
+          const sortOrder = show.sortOrder || showIdx + 1;
+          const showKey = `${b.dateISO}|${showTime}|${sortOrder}`;
+          if (!showInstances.has(showKey)) {
+            showInstances.set(showKey, {
+              location_id: Number(locId),
+              show_date: b.dateISO,
+              show_time: showTime,
+              sort_order: sortOrder,
+            });
+          }
+
+          assignments.push({
+            location_id: Number(locId),
+            work_date: b.dateISO,
+            crew_id: Number(crewId),
+            is_working: true,
+            track_id: Number(mappedTrack),
+            show_time: showTime,
+          });
         });
       });
     }
 
     return {
       assignments,
+      showInstances,
+      shiftEntries,
       codesFound,
       crewNames,
       unknownCodes,
@@ -519,6 +613,10 @@ export default function MasterScheduleImportModal({
       setImportError("No assignments found to import.");
       return;
     }
+    if (!crewExtract.showInstances || crewExtract.showInstances.size === 0) {
+      setImportError("No show times found to import.");
+      return;
+    }
     if (!crewExtract.dateRange.start || !crewExtract.dateRange.end) {
       setImportError("Unable to determine date range from the file.");
       return;
@@ -535,21 +633,82 @@ export default function MasterScheduleImportModal({
           crewExtract.dateRange.end
         }`
       );
+      await supabaseDelete(
+        `/rest/v1/show_instances?location_id=eq.${Number(
+          locId
+        )}&show_date=gte.${crewExtract.dateRange.start}&show_date=lte.${
+          crewExtract.dateRange.end
+        }`
+      );
 
-      const assignments = crewExtract.assignments;
-      const chunkSize = 500;
-      for (let i = 0; i < assignments.length; i += chunkSize) {
-        const slice = assignments.slice(i, i + chunkSize);
+      const showRows = Array.from(crewExtract.showInstances.values());
+      const showChunkSize = 200;
+      for (let i = 0; i < showRows.length; i += showChunkSize) {
+        const slice = showRows.slice(i, i + showChunkSize);
         await supabasePost(
-          "/rest/v1/work_roster_assignments?on_conflict=location_id,work_date,crew_id",
+          "/rest/v1/show_instances?on_conflict=location_id,show_date,show_time",
           slice,
           { headers: { Prefer: "resolution=merge-duplicates,return=minimal" } }
         );
       }
 
+      const showLookup = await supabaseGet(
+        `/rest/v1/show_instances?select=id,show_date,show_time` +
+          `&location_id=eq.${Number(locId)}` +
+          `&show_date=gte.${crewExtract.dateRange.start}` +
+          `&show_date=lte.${crewExtract.dateRange.end}`,
+        { bypassCache: true }
+      );
+      const showIdByKey = new Map();
+      for (const row of Array.isArray(showLookup) ? showLookup : []) {
+        const key = `${row.show_date}|${row.show_time}`;
+        showIdByKey.set(key, row.id);
+      }
+
+      const assignments = crewExtract.assignments
+        .map((a) => {
+          const key = `${a.work_date}|${a.show_time}`;
+          const showId = showIdByKey.get(key);
+          if (!showId) return null;
+          return {
+            location_id: a.location_id,
+            work_date: a.work_date,
+            crew_id: a.crew_id,
+            is_working: a.is_working,
+            track_id: a.track_id,
+            show_id: showId,
+          };
+        })
+        .filter(Boolean);
+      const chunkSize = 500;
+      for (let i = 0; i < assignments.length; i += chunkSize) {
+        const slice = assignments.slice(i, i + chunkSize);
+        await supabasePost(
+          "/rest/v1/work_roster_assignments?on_conflict=location_id,work_date,show_id,crew_id",
+          slice,
+          { headers: { Prefer: "resolution=merge-duplicates,return=minimal" } }
+        );
+      }
+
+      const shiftRows = crewExtract.shiftEntries
+        ? Array.from(crewExtract.shiftEntries.values())
+        : [];
+      if (shiftRows.length) {
+        const shiftChunk = 500;
+        for (let i = 0; i < shiftRows.length; i += shiftChunk) {
+          const slice = shiftRows.slice(i, i + shiftChunk);
+          await supabasePost(
+            "/rest/v1/crew_work_shifts?on_conflict=location_id,work_date,crew_id",
+            slice,
+            { headers: { Prefer: "resolution=merge-duplicates,return=minimal" } }
+          );
+        }
+      }
+
       setImportResult(
         `Imported ${assignments.length} assignments for ${crewExtract.dateRange.start} to ${crewExtract.dateRange.end}.`
       );
+      if (typeof onImported === "function") onImported();
     } catch (e) {
       setImportError(String(e?.message || e));
     } finally {

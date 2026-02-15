@@ -24,7 +24,20 @@ function normalizeTrackId(value) {
   return n;
 }
 
-function keyOf(dateISO, crewId) {
+function normalizeShowId(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n <= 0) return null;
+  return n;
+}
+
+function keyOf(dateISO, showId, crewId) {
+  const sid = normalizeShowId(showId) ?? 0;
+  return `${dateISO}|${sid}|${Number(crewId)}`;
+}
+
+function shiftKey(dateISO, crewId) {
   return `${dateISO}|${Number(crewId)}`;
 }
 
@@ -33,6 +46,8 @@ export default function useRosterData({
   locationId,
   supabaseGet,
   supabasePost,
+  supabasePatch,
+  supabaseDelete,
   days = 7,
 }) {
   const location = locationId ?? locId ?? null;
@@ -57,6 +72,42 @@ export default function useRosterData({
   const [crewLoading, setCrewLoading] = useState(false);
   const [crewError, setCrewError] = useState("");
 
+  // Shift times (per crew/day)
+  const [shiftMap, setShiftMap] = useState(() => new Map());
+  const [shiftLoading, setShiftLoading] = useState(false);
+  const [shiftError, setShiftError] = useState("");
+
+  // Shows for visible range only
+  const [shows, setShows] = useState([]);
+  const [showsLoading, setShowsLoading] = useState(false);
+  const [showsError, setShowsError] = useState("");
+
+  const showsByDate = useMemo(() => {
+    const map = new Map();
+    for (const s of Array.isArray(shows) ? shows : []) {
+      const d = safeISODate(s.show_date);
+      if (!d) continue;
+      const entry = {
+        id: Number(s.id),
+        date: d,
+        time: s.show_time,
+        sortOrder: Number(s.sort_order) || 0,
+      };
+      if (!map.has(d)) map.set(d, []);
+      map.get(d).push(entry);
+    }
+    for (const [d, list] of map.entries()) {
+      list.sort((a, b) => {
+        if (a.sortOrder && b.sortOrder && a.sortOrder !== b.sortOrder) {
+          return a.sortOrder - b.sortOrder;
+        }
+        return String(a.time).localeCompare(String(b.time));
+      });
+      map.set(d, list);
+    }
+    return map;
+  }, [shows]);
+
   // Assignments for visible range only
   const [assignLoading, setAssignLoading] = useState(false);
   const [assignError, setAssignError] = useState("");
@@ -69,7 +120,7 @@ export default function useRosterData({
   const [saveError, setSaveError] = useState("");
 
   // Dirty buffer for debounced saving
-  const dirtyRef = useRef(new Map()); // key -> { location_id, work_date, crew_id, is_working, track_id }
+  const dirtyRef = useRef(new Map()); // key -> { location_id, work_date, crew_id, show_id, is_working, track_id }
   const saveTimerRef = useRef(null);
 
   const canRun =
@@ -102,6 +153,39 @@ export default function useRosterData({
     }
   }, [canRun, location, supabaseGet]);
 
+  const loadShowsForRange = useCallback(
+    async (rangeStartISO, rangeEndISO, opts = {}) => {
+      if (!location || typeof supabaseGet !== "function") return;
+      const rs = safeISODate(rangeStartISO);
+      const re = safeISODate(rangeEndISO);
+      if (!rs || !re) return;
+
+      setShowsLoading(true);
+      setShowsError("");
+
+      try {
+        const path =
+          "/rest/v1/show_instances" +
+          `?select=id,location_id,show_date,show_time,sort_order` +
+          `&location_id=eq.${Number(location)}` +
+          `&show_date=gte.${rs}` +
+          `&show_date=lte.${re}`;
+
+        const rows = await supabaseGet(path, {
+          cacheTag: `roster:shows:${location}:${rs}:${re}`,
+          ...opts,
+        });
+        setShows(Array.isArray(rows) ? rows : []);
+      } catch (e) {
+        setShowsError(String(e?.message || e));
+        setShows([]);
+      } finally {
+        setShowsLoading(false);
+      }
+    },
+    [location, supabaseGet]
+  );
+
   const loadAssignmentsForRange = useCallback(
     async (rangeStartISO, rangeEndISO, opts = {}) => {
       if (!canRun) return;
@@ -116,7 +200,7 @@ export default function useRosterData({
       try {
         const path =
           "/rest/v1/work_roster_assignments" +
-          `?select=id,location_id,work_date,crew_id,is_working,track_id` +
+          `?select=id,location_id,work_date,crew_id,show_id,is_working,track_id` +
           `&location_id=eq.${Number(location)}` +
           `&work_date=gte.${rs}` +
           `&work_date=lte.${re}`;
@@ -131,9 +215,10 @@ export default function useRosterData({
           const d = safeISODate(r.work_date);
           const cid = Number(r.crew_id);
           if (!d || !Number.isFinite(cid)) continue;
-          next.set(keyOf(d, cid), {
+          next.set(keyOf(d, r.show_id, cid), {
             isWorking: !!r.is_working,
             trackId: normalizeTrackId(r.track_id),
+            showId: normalizeShowId(r.show_id),
           });
         }
         setAssignMap(next);
@@ -147,6 +232,51 @@ export default function useRosterData({
     [canRun, location, supabaseGet]
   );
 
+  const loadShiftsForRange = useCallback(
+    async (rangeStartISO, rangeEndISO, opts = {}) => {
+      if (!canRun) return;
+
+      const rs = safeISODate(rangeStartISO);
+      const re = safeISODate(rangeEndISO);
+      if (!rs || !re) return;
+
+      setShiftLoading(true);
+      setShiftError("");
+
+      try {
+        const path =
+          "/rest/v1/crew_work_shifts" +
+          `?select=location_id,work_date,crew_id,start_time,end_time` +
+          `&location_id=eq.${Number(location)}` +
+          `&work_date=gte.${rs}` +
+          `&work_date=lte.${re}`;
+
+        const rows = await supabaseGet(path, {
+          cacheTag: `roster:shifts:${location}:${rs}:${re}`,
+          ...opts,
+        });
+
+        const next = new Map();
+        for (const r of Array.isArray(rows) ? rows : []) {
+          const d = safeISODate(r.work_date);
+          const cid = Number(r.crew_id);
+          if (!d || !Number.isFinite(cid)) continue;
+          next.set(shiftKey(d, cid), {
+            startTime: r.start_time || null,
+            endTime: r.end_time || null,
+          });
+        }
+        setShiftMap(next);
+      } catch (e) {
+        setShiftError(String(e?.message || e));
+        setShiftMap(new Map());
+      } finally {
+        setShiftLoading(false);
+      }
+    },
+    [canRun, location, supabaseGet]
+  );
+
   useEffect(() => {
     if (!canRun) return;
     loadCrew();
@@ -155,32 +285,111 @@ export default function useRosterData({
   useEffect(() => {
     if (!canRun) return;
     loadAssignmentsForRange(startISO, endISO);
-  }, [canRun, loadAssignmentsForRange, startISO, endISO]);
+    loadShowsForRange(startISO, endISO);
+    loadShiftsForRange(startISO, endISO);
+  }, [
+    canRun,
+    loadAssignmentsForRange,
+    loadShowsForRange,
+    loadShiftsForRange,
+    startISO,
+    endISO,
+  ]);
 
   const getAssignment = useCallback(
-    (dateISO, crewId) => {
+    (dateISO, crewId, showId = null) => {
       const d = safeISODate(dateISO);
       if (!d) return { isWorking: false, trackId: null };
       const cid = Number(crewId);
       if (!Number.isFinite(cid)) return { isWorking: false, trackId: null };
-      const k = keyOf(d, cid);
+      const k = keyOf(d, showId, cid);
       const entry = assignMap.get(k);
       return {
         isWorking: !!entry?.isWorking,
         trackId: normalizeTrackId(entry?.trackId),
+        showId: normalizeShowId(entry?.showId),
       };
     },
     [assignMap]
   );
 
   const isWorking = useCallback(
-    (dateISO, crewId) => getAssignment(dateISO, crewId).isWorking,
+    (dateISO, crewId, showId = null) =>
+      getAssignment(dateISO, crewId, showId).isWorking,
     [getAssignment]
   );
 
   const getTrackId = useCallback(
-    (dateISO, crewId) => getAssignment(dateISO, crewId).trackId,
+    (dateISO, crewId, showId = null) =>
+      getAssignment(dateISO, crewId, showId).trackId,
     [getAssignment]
+  );
+
+  const getShift = useCallback(
+    (dateISO, crewId) => {
+      const d = safeISODate(dateISO);
+      if (!d) return { startTime: null, endTime: null };
+      const cid = Number(crewId);
+      if (!Number.isFinite(cid)) return { startTime: null, endTime: null };
+      const entry = shiftMap.get(shiftKey(d, cid));
+      return {
+        startTime: entry?.startTime || null,
+        endTime: entry?.endTime || null,
+      };
+    },
+    [shiftMap]
+  );
+
+  const setShiftFor = useCallback(
+    async (dateISO, crewId, startTime, endTime) => {
+      if (!location || typeof supabasePost !== "function") return;
+      const d = safeISODate(dateISO);
+      if (!d) return;
+      const cid = Number(crewId);
+      if (!Number.isFinite(cid)) return;
+
+      const nextStart = startTime || null;
+      const nextEnd = endTime || null;
+      setShiftMap((prev) => {
+        const m = new Map(prev);
+        if (!nextStart && !nextEnd) {
+          m.delete(shiftKey(d, cid));
+        } else {
+          m.set(shiftKey(d, cid), { startTime: nextStart, endTime: nextEnd });
+        }
+        return m;
+      });
+
+      setShiftError("");
+      try {
+        if (!nextStart && !nextEnd) {
+          if (typeof supabaseDelete === "function") {
+            await supabaseDelete(
+              `/rest/v1/crew_work_shifts?location_id=eq.${Number(
+                location
+              )}&work_date=eq.${d}&crew_id=eq.${cid}`
+            );
+          }
+          return;
+        }
+        await supabasePost(
+          "/rest/v1/crew_work_shifts?on_conflict=location_id,work_date,crew_id",
+          [
+            {
+              location_id: Number(location),
+              work_date: d,
+              crew_id: cid,
+              start_time: nextStart,
+              end_time: nextEnd,
+            },
+          ],
+          { headers: { Prefer: "resolution=merge-duplicates,return=minimal" } }
+        );
+      } catch (e) {
+        setShiftError(String(e?.message || e));
+      }
+    },
+    [location, supabasePost, supabaseDelete]
   );
 
   const flushSave = useCallback(async () => {
@@ -195,7 +404,7 @@ export default function useRosterData({
 
     try {
       await supabasePost(
-        "/rest/v1/work_roster_assignments?on_conflict=location_id,work_date,crew_id",
+        "/rest/v1/work_roster_assignments?on_conflict=location_id,work_date,show_id,crew_id",
         dirty,
         {
           headers: {
@@ -229,8 +438,102 @@ export default function useRosterData({
     await flushSave();
   }, [flushSave]);
 
+  const getShowsForDate = useCallback(
+    (dateISO) => {
+      const d = safeISODate(dateISO);
+      if (!d) return [];
+      return showsByDate.get(d) || [];
+    },
+    [showsByDate]
+  );
+
+  const createShow = useCallback(
+    async (dateISO, timeValue, sortOrder = null) => {
+      if (!location || typeof supabasePost !== "function") return;
+      const d = safeISODate(dateISO);
+      if (!d) return;
+      if (!timeValue) return;
+      setShowsError("");
+      const payload = {
+        location_id: Number(location),
+        show_date: d,
+        show_time: timeValue,
+      };
+      if (Number.isFinite(Number(sortOrder))) {
+        payload.sort_order = Number(sortOrder);
+      }
+      try {
+        await supabasePost(
+          "/rest/v1/show_instances?on_conflict=location_id,show_date,show_time",
+          [payload],
+          {
+            headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          }
+        );
+        loadShowsForRange(startISO, endISO, { bypassCache: true });
+      } catch (e) {
+        setShowsError(String(e?.message || e));
+      }
+    },
+    [location, supabasePost, loadShowsForRange, startISO, endISO]
+  );
+
+  const updateShow = useCallback(
+    async (showId, timeValue) => {
+      if (!showId || typeof supabasePatch !== "function") return;
+      if (!timeValue) return;
+      setShowsError("");
+      const current = (shows || []).find(
+        (s) => Number(s.id) === Number(showId)
+      );
+      if (current) {
+        const curDate = safeISODate(current.show_date);
+        const dup = (shows || []).find(
+          (s) =>
+            Number(s.id) !== Number(showId) &&
+            safeISODate(s.show_date) === curDate &&
+            String(s.show_time) === String(timeValue)
+        );
+        if (dup) {
+          setShowsError("Show time already exists for this day.");
+          return;
+        }
+      }
+      try {
+        await supabasePatch(`/rest/v1/show_instances?id=eq.${Number(showId)}`, {
+          show_time: timeValue,
+        });
+        loadShowsForRange(startISO, endISO, { bypassCache: true });
+      } catch (e) {
+        setShowsError(String(e?.message || e));
+      }
+    },
+    [supabasePatch, loadShowsForRange, startISO, endISO, shows]
+  );
+
+  const deleteShow = useCallback(
+    async (showId, dateISO) => {
+      if (!showId || typeof supabaseDelete !== "function") return;
+      const d = safeISODate(dateISO);
+      if (!d) return;
+      setShowsError("");
+      try {
+        await supabaseDelete(
+          `/rest/v1/work_roster_assignments?location_id=eq.${Number(
+            location
+          )}&work_date=eq.${d}&show_id=eq.${Number(showId)}`
+        );
+        await supabaseDelete(`/rest/v1/show_instances?id=eq.${Number(showId)}`);
+        loadShowsForRange(startISO, endISO, { bypassCache: true });
+      } catch (e) {
+        setShowsError(String(e?.message || e));
+      }
+    },
+    [location, supabaseDelete, loadShowsForRange, startISO, endISO]
+  );
+
   const setAssignmentFor = useCallback(
-    (dateISO, crewId, next) => {
+    (dateISO, crewId, showId, next) => {
       if (savePaused) return;
 
       const d = safeISODate(dateISO);
@@ -242,16 +545,17 @@ export default function useRosterData({
       const lid = Number(location);
       if (!Number.isFinite(lid)) return;
 
+      const sid = normalizeShowId(showId);
       const nextIsWorking = !!next?.isWorking;
       const nextTrackId = nextIsWorking
         ? normalizeTrackId(next?.trackId)
         : null;
 
-      const k = keyOf(d, cid);
+      const k = keyOf(d, sid, cid);
 
       setAssignMap((prev) => {
         const m = new Map(prev);
-        m.set(k, { isWorking: nextIsWorking, trackId: nextTrackId });
+        m.set(k, { isWorking: nextIsWorking, trackId: nextTrackId, showId: sid });
         return m;
       });
 
@@ -259,6 +563,7 @@ export default function useRosterData({
         location_id: lid,
         work_date: d,
         crew_id: cid,
+        show_id: sid,
         is_working: nextIsWorking,
         track_id: nextTrackId,
       });
@@ -269,10 +574,10 @@ export default function useRosterData({
   );
 
   const setWorkingFor = useCallback(
-    (dateISO, crewId, nextVal) => {
-      const current = getAssignment(dateISO, crewId);
+    (dateISO, crewId, showId, nextVal) => {
+      const current = getAssignment(dateISO, crewId, showId);
       const nextIsWorking = !!nextVal;
-      setAssignmentFor(dateISO, crewId, {
+      setAssignmentFor(dateISO, crewId, showId, {
         isWorking: nextIsWorking,
         trackId: nextIsWorking ? current.trackId : null,
       });
@@ -281,10 +586,10 @@ export default function useRosterData({
   );
 
   const setTrackFor = useCallback(
-    (dateISO, crewId, nextTrackId) => {
-      const current = getAssignment(dateISO, crewId);
+    (dateISO, crewId, showId, nextTrackId) => {
+      const current = getAssignment(dateISO, crewId, showId);
       if (!current.isWorking) return;
-      setAssignmentFor(dateISO, crewId, {
+      setAssignmentFor(dateISO, crewId, showId, {
         isWorking: true,
         trackId: nextTrackId,
       });
@@ -293,7 +598,7 @@ export default function useRosterData({
   );
 
   const toggleCell = useCallback(
-    (dateISO, crewId) => {
+    (dateISO, crewId, showId) => {
       if (savePaused) return;
 
       const d = safeISODate(dateISO);
@@ -302,8 +607,8 @@ export default function useRosterData({
       const cid = Number(crewId);
       if (!Number.isFinite(cid)) return;
 
-      const current = isWorking(d, cid);
-      setWorkingFor(d, cid, !current);
+      const current = isWorking(d, cid, showId);
+      setWorkingFor(d, cid, showId, !current);
     },
     [isWorking, savePaused, setWorkingFor]
   );
@@ -315,11 +620,15 @@ export default function useRosterData({
       const d = safeISODate(dateISO);
       if (!d) return;
 
+      const showList = getShowsForDate(d);
+      const showsToClear = showList.length ? showList : [{ id: null }];
       for (const c of crew) {
-        setWorkingFor(d, c.id, false);
+        for (const s of showsToClear) {
+          setWorkingFor(d, c.id, s.id ?? null, false);
+        }
       }
     },
-    [crew, savePaused, setWorkingFor]
+    [crew, savePaused, setWorkingFor, getShowsForDate]
   );
 
   const copyPreviousWeek = useCallback(async () => {
@@ -335,7 +644,7 @@ export default function useRosterData({
     try {
         const path =
           "/rest/v1/work_roster_assignments" +
-          `?select=work_date,crew_id,is_working,track_id,location_id` +
+          `?select=work_date,crew_id,show_id,is_working,track_id,location_id` +
           `&location_id=eq.${Number(location)}` +
           `&work_date=gte.${prevStart}` +
           `&work_date=lte.${prevEnd}`;
@@ -348,14 +657,42 @@ export default function useRosterData({
       prevRows = [];
     }
 
+    let prevShiftRows = [];
+    try {
+      const shiftPath =
+        "/rest/v1/crew_work_shifts" +
+        `?select=work_date,crew_id,start_time,end_time,location_id` +
+        `&location_id=eq.${Number(location)}` +
+        `&work_date=gte.${prevStart}` +
+        `&work_date=lte.${prevEnd}`;
+      const rows = await supabaseGet(shiftPath, {
+        cacheTag: `roster:shifts:${location}:${prevStart}:${prevEnd}`,
+      });
+      prevShiftRows = Array.isArray(rows) ? rows : [];
+    } catch {
+      prevShiftRows = [];
+    }
+
     const prevMap = new Map();
     for (const r of prevRows) {
       const d = safeISODate(r.work_date);
       const cid = Number(r.crew_id);
       if (!d || !Number.isFinite(cid)) continue;
-      prevMap.set(keyOf(d, cid), {
+      prevMap.set(keyOf(d, r.show_id, cid), {
         isWorking: !!r.is_working,
         trackId: normalizeTrackId(r.track_id),
+        showId: normalizeShowId(r.show_id),
+      });
+    }
+
+    const prevShiftMap = new Map();
+    for (const r of prevShiftRows) {
+      const d = safeISODate(r.work_date);
+      const cid = Number(r.crew_id);
+      if (!d || !Number.isFinite(cid)) continue;
+      prevShiftMap.set(shiftKey(d, cid), {
+        startTime: r.start_time || null,
+        endTime: r.end_time || null,
       });
     }
 
@@ -366,12 +703,21 @@ export default function useRosterData({
         if (!curDay) continue;
         const prevDay = safeISODate(addDaysISO(curDay, -rangeDays));
         if (!prevDay) continue;
-        const prevEntry =
-          prevMap.get(keyOf(prevDay, c.id)) || {
-            isWorking: false,
-            trackId: null,
-          };
-        setAssignmentFor(curDay, c.id, prevEntry);
+        const showList = getShowsForDate(curDay);
+        const showsToCopy = showList.length ? showList : [{ id: null }];
+        for (const s of showsToCopy) {
+          const prevEntry =
+            prevMap.get(keyOf(prevDay, s.id ?? null, c.id)) || {
+              isWorking: false,
+              trackId: null,
+            };
+          setAssignmentFor(curDay, c.id, s.id ?? null, prevEntry);
+        }
+
+        const prevShift = prevShiftMap.get(shiftKey(prevDay, c.id));
+        if (prevShift) {
+          setShiftFor(curDay, c.id, prevShift.startTime, prevShift.endTime);
+        }
       }
     }
   }, [
@@ -382,8 +728,10 @@ export default function useRosterData({
     rangeDays,
     savePaused,
     setAssignmentFor,
+    setShiftFor,
     startISO,
     supabaseGet,
+    getShowsForDate,
   ]);
 
   const shiftWeek = useCallback((deltaWeeks) => {
@@ -399,7 +747,16 @@ export default function useRosterData({
       setAssignMap(new Map());
     }
     loadAssignmentsForRange(startISO, endISO, force ? { bypassCache: true } : {});
-  }, [canRun, startISO, endISO, loadAssignmentsForRange]);
+    loadShowsForRange(startISO, endISO, force ? { bypassCache: true } : {});
+    loadShiftsForRange(startISO, endISO, force ? { bypassCache: true } : {});
+  }, [
+    canRun,
+    startISO,
+    endISO,
+    loadAssignmentsForRange,
+    loadShowsForRange,
+    loadShiftsForRange,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -417,6 +774,20 @@ export default function useRosterData({
     crew,
     crewLoading,
     crewError,
+
+    // shows
+    showsLoading,
+    showsError,
+    getShowsForDate,
+    createShow,
+    updateShow,
+    deleteShow,
+
+    // shifts
+    shiftLoading,
+    shiftError,
+    getShift,
+    setShiftFor,
 
     // assignments
     assignLoading,

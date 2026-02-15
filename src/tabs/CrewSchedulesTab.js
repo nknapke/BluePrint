@@ -14,6 +14,7 @@ export default function CrewSchedulesTab({
   locationId = null,
   supabaseGet,
   supabasePost,
+  supabasePatch,
   supabaseDelete,
   tracks = /** @type {import("../types/domain").Track[]} */ ([]),
 }) {
@@ -33,6 +34,8 @@ export default function CrewSchedulesTab({
     locationId: locId,
     supabaseGet,
     supabasePost,
+    supabasePatch,
+    supabaseDelete,
     days: 7,
   });
 
@@ -140,6 +143,11 @@ export default function CrewSchedulesTab({
     try {
       await supabaseDelete(
         `/rest/v1/work_roster_assignments?location_id=eq.${Number(
+          locId
+        )}&work_date=gte.${roster.startISO}&work_date=lte.${roster.endISO}`
+      );
+      await supabaseDelete(
+        `/rest/v1/crew_work_shifts?location_id=eq.${Number(
           locId
         )}&work_date=gte.${roster.startISO}&work_date=lte.${roster.endISO}`
       );
@@ -352,6 +360,7 @@ export default function CrewSchedulesTab({
         S={S}
         open={importOpen}
         onClose={() => setImportOpen(false)}
+        onImported={() => roster.refreshAssignments?.(true)}
         locId={locId}
         supabaseGet={supabaseGet}
         supabasePost={supabasePost}
