@@ -393,6 +393,62 @@ export default function CrewSchedulesGrid({
     [days, colsForDate]
   );
   const colGap = compact ? 4 : 8;
+  const dayBoundaryGap = compact ? 6 : 10;
+  const dayBoundaryHalf = dayBoundaryGap / 2;
+  const dayIndexByDate = useMemo(() => {
+    const map = new Map();
+    days.forEach((d, i) => map.set(d, i));
+    return map;
+  }, [days]);
+  const dayChrome = useCallback(
+    (d) => {
+      const idx = dayIndexByDate.get(d) || 0;
+      const isTodayDay = d === todayISO;
+      return {
+        idx,
+        isTodayDay,
+        laneTint: isTodayDay
+          ? "rgba(0,122,255,0.09)"
+          : idx % 2 === 0
+          ? "rgba(255,255,255,0.022)"
+          : "rgba(148,178,240,0.035)",
+        emptyTint: isTodayDay
+          ? "rgba(0,122,255,0.05)"
+          : idx % 2 === 0
+          ? "rgba(255,255,255,0.015)"
+          : "rgba(148,178,240,0.022)",
+        hoverTint: isTodayDay
+          ? "rgba(0,122,255,0.14)"
+          : "rgba(255,255,255,0.06)",
+        edge: isTodayDay ? "rgba(0,122,255,0.42)" : "rgba(255,255,255,0.18)",
+        baseline: isTodayDay ? "rgba(0,122,255,0.58)" : "rgba(255,255,255,0.20)",
+      };
+    },
+    [dayIndexByDate, todayISO]
+  );
+  const daySpanSpacing = useCallback(
+    (d) => {
+      const idx = dayIndexByDate.get(d) || 0;
+      return {
+        marginLeft: idx === 0 ? 0 : dayBoundaryHalf,
+        marginRight: idx === days.length - 1 ? 0 : dayBoundaryHalf,
+      };
+    },
+    [dayIndexByDate, days.length, dayBoundaryHalf]
+  );
+  const daySlotSpacing = useCallback(
+    (d, slotIdx, slotCount) => {
+      const idx = dayIndexByDate.get(d) || 0;
+      return {
+        marginLeft: slotIdx === 0 && idx > 0 ? dayBoundaryHalf : 0,
+        marginRight:
+          slotIdx === slotCount - 1 && idx < days.length - 1
+            ? dayBoundaryHalf
+            : 0,
+      };
+    },
+    [dayIndexByDate, days.length, dayBoundaryHalf]
+  );
   const gridTemplateColumns = `${leadColWidth}px repeat(${totalCols}, minmax(${dayColMin}px, 1fr))`;
   const minGridWidth = leadColWidth + totalCols * (dayColMin + colGap + 4);
   const headerWrap = {
@@ -460,6 +516,7 @@ export default function CrewSchedulesGrid({
     alignItems: "center",
     justifyContent: "center",
     padding: compact ? "0 4px" : "0 6px",
+    overflow: "hidden",
   };
   const frozenLeadBase = {
     width: leadColWidth,
@@ -569,7 +626,8 @@ export default function CrewSchedulesGrid({
             <div style={gridRow}>
               <div style={frozenLeadHeaderCell} data-freeze-left="1" />
             {days.map((d) => {
-              const isToday = d === todayISO;
+              const chrome = dayChrome(d);
+              const isToday = chrome.isTodayDay;
               const canAddShow =
                 showsForDate(d).length < 4 && !savePaused;
               return (
@@ -579,6 +637,7 @@ export default function CrewSchedulesGrid({
                   onMouseLeave={() => setHoverDate(null)}
                   style={{
                     gridColumn: `span ${colsForDate(d)}`,
+                    ...daySpanSpacing(d),
                     borderRadius: compact ? 10 : 14,
                     padding: compact ? "6px 8px" : "10px",
                     textAlign: "center",
@@ -596,6 +655,9 @@ export default function CrewSchedulesGrid({
                     border: isToday
                       ? "1px solid rgba(0,122,255,0.45)"
                       : "1px solid rgba(255,255,255,0.08)",
+                    boxShadow: isToday
+                      ? `inset 0 -2px 0 ${chrome.baseline}`
+                      : `inset 0 -1px 0 ${chrome.baseline}`,
                     transition: "background 120ms ease, border 120ms ease",
                     position: "relative",
                   }}
@@ -647,6 +709,8 @@ export default function CrewSchedulesGrid({
               <div style={frozenLeadHeaderCell} data-freeze-left="1" />
               {days.flatMap((d) => {
                 const slots = showSlotsForDate(d);
+                const cols = colsForDate(d);
+                const chrome = dayChrome(d);
                 return slots.map((slot, idx) => {
                   const isShow = slot?.kind === "show";
                   const isAdd = slot?.kind === "add";
@@ -658,6 +722,7 @@ export default function CrewSchedulesGrid({
                       onMouseEnter={() => setHoverDate(d)}
                       onMouseLeave={() => setHoverDate(null)}
                       style={{
+                        ...daySlotSpacing(d, idx, cols),
                         borderRadius: compact ? 8 : 12,
                         padding: compact ? "5px 4px" : "8px 6px",
                         textAlign: "center",
@@ -666,11 +731,19 @@ export default function CrewSchedulesGrid({
                             ? "rgba(255,255,255,0.05)"
                             : "rgba(255,255,255,0.06)"
                           : compact
-                          ? "rgba(255,255,255,0.015)"
-                          : "rgba(255,255,255,0.02)",
+                          ? chrome.emptyTint
+                          : chrome.laneTint,
                         border: isShow
                           ? "1px solid rgba(255,255,255,0.14)"
                           : "1px dashed rgba(255,255,255,0.08)",
+                        borderLeft:
+                          idx === 0
+                            ? `1px solid ${chrome.edge}`
+                            : undefined,
+                        borderRight:
+                          idx === cols - 1
+                            ? `1px solid ${chrome.edge}`
+                            : undefined,
                         color: isShow
                           ? "rgba(255,255,255,0.85)"
                           : "rgba(255,255,255,0.45)",
@@ -775,10 +848,15 @@ export default function CrewSchedulesGrid({
                           {days.map((d) => {
                             const shift = getShift(d, c.id) || {};
                             const slots = showSlotsForDate(d);
-                            const isAnyWorking = slots.some((show) => {
-                              const canUse = show?.kind === "show";
+                            const cols = colsForDate(d);
+                            const chrome = dayChrome(d);
+                            const hasTrackAssignment = slots.some((slot) => {
+                              const canUse = slot?.kind === "show";
                               if (!canUse) return false;
-                              return isWorking(d, c.id, show?.show?.id ?? null);
+                              const sid = slot?.show?.id ?? null;
+                              if (!isWorking(d, c.id, sid)) return false;
+                              const tid = getTrackId(d, c.id, sid);
+                              return tid != null && Number.isFinite(tid);
                             });
 
                             return (
@@ -786,123 +864,126 @@ export default function CrewSchedulesGrid({
                                 key={`${c.id}-${d}-time`}
                                 style={{
                                   ...timeCellBase,
-                                  gridColumn: `span ${colsForDate(d)}`,
-                                  background: isAnyWorking
-                                    ? "rgba(255,255,255,0.05)"
-                                    : "rgba(255,255,255,0.02)",
-                                  border: isAnyWorking
-                                    ? "1px solid rgba(255,255,255,0.12)"
-                                    : "1px solid rgba(255,255,255,0.06)",
+                                  ...daySpanSpacing(d),
+                                  gridColumn: `span ${cols}`,
+                                  background: hasTrackAssignment
+                                    ? `linear-gradient(180deg, rgba(255,255,255,0.05) 0%, ${chrome.emptyTint} 100%)`
+                                    : chrome.laneTint,
+                                  border: hasTrackAssignment
+                                    ? `1px solid ${
+                                        chrome.isTodayDay
+                                          ? "rgba(0,122,255,0.38)"
+                                          : "rgba(255,255,255,0.12)"
+                                      }`
+                                    : `1px solid ${
+                                        chrome.isTodayDay
+                                          ? "rgba(0,122,255,0.26)"
+                                          : "rgba(255,255,255,0.08)"
+                                      }`,
                                 }}
                               >
-                                {isAnyWorking ? (
+                                {hasTrackAssignment ? (
                                   <div
                                     style={{
                                       display: "grid",
-                                      gridTemplateColumns: "1fr 1fr",
-                                      gap: compact ? 4 : 6,
+                                      gridTemplateColumns:
+                                        "auto minmax(0,1fr) auto minmax(0,1fr)",
+                                      columnGap: compact ? 4 : 6,
                                       width: "100%",
+                                      minWidth: 0,
+                                      alignItems: "center",
                                     }}
                                   >
-                                    <div
+                                    <span
                                       style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: 4,
+                                        fontSize: compact ? 9 : 10,
+                                        fontWeight: 800,
+                                        opacity: 0.75,
+                                        whiteSpace: "nowrap",
                                       }}
                                     >
-                                      <span
-                                        style={{
-                                          fontSize: compact ? 9 : 10,
-                                          fontWeight: 800,
-                                          opacity: 0.75,
-                                        }}
-                                      >
-                                        IN:
-                                      </span>
-                                      <select
-                                        value={
-                                          shift?.startTime
-                                            ? formatShowTime(shift.startTime)
-                                            : ""
-                                        }
-                                        onChange={(e) =>
-                                          applyShift(
-                                            d,
-                                            c.id,
-                                            e.target.value,
-                                            shift?.endTime
-                                              ? formatShowTime(shift.endTime)
-                                              : ""
-                                          )
-                                        }
-                                        style={{
-                                          ...S.select,
-                                          height: compact ? 20 : 24,
-                                          fontSize: compact ? 9 : 10,
-                                          padding: compact ? "1px 4px" : "2px 6px",
-                                          minWidth: compact ? 72 : 86,
-                                        }}
-                                        disabled={savePaused}
-                                      >
-                                        <option value="">—</option>
-                                        {TIME_OPTIONS.map((t) => (
-                                          <option key={t} value={t}>
-                                            {t}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <div
-                                      style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: 4,
-                                        justifyContent: "flex-end",
-                                      }}
-                                    >
-                                      <span
-                                        style={{
-                                          fontSize: compact ? 9 : 10,
-                                          fontWeight: 800,
-                                          opacity: 0.75,
-                                        }}
-                                      >
-                                        OUT:
-                                      </span>
-                                      <select
-                                        value={
+                                      IN:
+                                    </span>
+                                    <select
+                                      value={
+                                        shift?.startTime
+                                          ? formatShowTime(shift.startTime)
+                                          : ""
+                                      }
+                                      onChange={(e) =>
+                                        applyShift(
+                                          d,
+                                          c.id,
+                                          e.target.value,
                                           shift?.endTime
                                             ? formatShowTime(shift.endTime)
                                             : ""
-                                        }
-                                        onChange={(e) =>
-                                          applyShift(
-                                            d,
-                                            c.id,
-                                            shift?.startTime
-                                              ? formatShowTime(shift.startTime)
-                                              : "",
-                                            e.target.value
-                                          )
-                                        }
-                                        style={{
-                                          ...S.select,
-                                          height: compact ? 20 : 24,
-                                          fontSize: compact ? 9 : 10,
-                                          padding: compact ? "1px 4px" : "2px 6px",
-                                          minWidth: compact ? 72 : 86,
-                                        }}
-                                        disabled={savePaused}
-                                      >
-                                        <option value="">—</option>
-                                        {TIME_OPTIONS.map((t) => (
-                                          <option key={t} value={t}>
-                                            {t}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
+                                        )
+                                      }
+                                      style={{
+                                        ...S.select,
+                                        height: compact ? 20 : 24,
+                                        fontSize: compact ? 9 : 10,
+                                        padding: compact ? "1px 3px" : "2px 5px",
+                                        width: "100%",
+                                        minWidth: 0,
+                                        maxWidth: "100%",
+                                        boxSizing: "border-box",
+                                      }}
+                                      disabled={savePaused}
+                                    >
+                                      <option value="">—</option>
+                                      {TIME_OPTIONS.map((t) => (
+                                        <option key={t} value={t}>
+                                          {t}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <span
+                                      style={{
+                                        fontSize: compact ? 9 : 10,
+                                        fontWeight: 800,
+                                        opacity: 0.75,
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      OUT:
+                                    </span>
+                                    <select
+                                      value={
+                                        shift?.endTime
+                                          ? formatShowTime(shift.endTime)
+                                          : ""
+                                      }
+                                      onChange={(e) =>
+                                        applyShift(
+                                          d,
+                                          c.id,
+                                          shift?.startTime
+                                            ? formatShowTime(shift.startTime)
+                                            : "",
+                                          e.target.value
+                                        )
+                                      }
+                                      style={{
+                                        ...S.select,
+                                        height: compact ? 20 : 24,
+                                        fontSize: compact ? 9 : 10,
+                                        padding: compact ? "1px 3px" : "2px 5px",
+                                        width: "100%",
+                                        minWidth: 0,
+                                        maxWidth: "100%",
+                                        boxSizing: "border-box",
+                                      }}
+                                      disabled={savePaused}
+                                    >
+                                      <option value="">—</option>
+                                      {TIME_OPTIONS.map((t) => (
+                                        <option key={t} value={t}>
+                                          {t}
+                                        </option>
+                                      ))}
+                                    </select>
                                   </div>
                                 ) : null}
                               </div>
@@ -940,13 +1021,15 @@ export default function CrewSchedulesGrid({
                           >
                             {days.flatMap((d) => {
                               const slots = showSlotsForDate(d);
+                              const cols = colsForDate(d);
+                              const chrome = dayChrome(d);
                               const showCountForDay = showsForDate(d).length;
                               return slots.map((slot, idx) => {
                                 const canUse = slot?.kind === "show";
                                 const showId = slot?.show?.id ?? null;
                                 const hideGhostForSingleShow =
                                   !canUse &&
-                                  colsForDate(d) === 2 &&
+                                  cols === 2 &&
                                   showCountForDay === 1;
                                 const working = canUse
                                   ? isWorking(d, c.id, showId)
@@ -978,23 +1061,36 @@ export default function CrewSchedulesGrid({
                                     }}
                                     style={{
                                       ...cellBase,
+                                      ...daySlotSpacing(d, idx, cols),
                                       padding: working ? 0 : cellBase.padding,
                                       background: !canUse
-                                        ? "rgba(255,255,255,0.015)"
+                                        ? chrome.emptyTint
                                         : working
                                         ? trackGlow
                                           ? `linear-gradient(180deg, ${trackGlow.bg} 0%, rgba(255,255,255,0.02) 100%)`
                                           : "linear-gradient(180deg, rgba(90,150,255,0.32) 0%, rgba(90,150,255,0.16) 100%)"
                                         : hover
-                                        ? "rgba(255,255,255,0.05)"
-                                        : "rgba(255,255,255,0.02)",
+                                        ? chrome.hoverTint
+                                        : chrome.laneTint,
                                       border: !canUse
-                                        ? "1px dashed rgba(255,255,255,0.06)"
+                                        ? "1px dashed rgba(255,255,255,0.07)"
                                         : working
                                         ? trackGlow
                                           ? `1px solid ${trackGlow.border}`
                                           : "1px solid rgba(90,150,255,0.40)"
-                                        : "1px solid rgba(255,255,255,0.08)",
+                                        : `1px solid ${
+                                            chrome.isTodayDay
+                                              ? "rgba(0,122,255,0.18)"
+                                              : "rgba(255,255,255,0.08)"
+                                          }`,
+                                      borderLeft:
+                                        idx === 0
+                                          ? `1px solid ${chrome.edge}`
+                                          : undefined,
+                                      borderRight:
+                                        idx === cols - 1
+                                          ? `1px solid ${chrome.edge}`
+                                          : undefined,
                                       boxShadow: trackGlow
                                         ? `0 0 0 1px ${trackGlow.inset} inset, 0 8px 20px ${trackGlow.shadow}`
                                         : hover
