@@ -38,6 +38,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
 
   const [hoverCrewId, setHoverCrewId] = useState(null);
   const [hoverDate, setHoverDate] = useState(null);
+  const panelRef = useRef(null);
   const headerRowRef = useRef(null);
   const bodyScrollRef = useRef(null);
 
@@ -319,10 +320,11 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
     marginTop: 12,
   };
 
+  const leadColWidth = 260;
   const dayColMin = 120;
   const totalCols = days.length * maxShows;
-  const gridTemplateColumns = `260px repeat(${totalCols}, minmax(${dayColMin}px, 1fr))`;
-  const minGridWidth = 260 + totalCols * (dayColMin + 14);
+  const gridTemplateColumns = `${leadColWidth}px repeat(${totalCols}, minmax(${dayColMin}px, 1fr))`;
+  const minGridWidth = leadColWidth + totalCols * (dayColMin + 14);
   const stickyOffset = 105;
   const headerWrap = {
     position: "sticky",
@@ -352,7 +354,11 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
     const body = bodyScrollRef.current;
     const header = headerRowRef.current;
     if (!body || !header) return;
-    header.style.transform = `translateX(-${body.scrollLeft || 0}px)`;
+    const left = body.scrollLeft || 0;
+    header.style.transform = `translateX(-${left}px)`;
+    if (panelRef.current) {
+      panelRef.current.style.setProperty("--freeze-x", `${left}px`);
+    }
   }, []);
 
   useEffect(() => {
@@ -383,6 +389,42 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
     alignItems: "center",
     justifyContent: "center",
     padding: "0 6px",
+  };
+  const frozenLeadBase = {
+    width: leadColWidth,
+    minWidth: leadColWidth,
+    maxWidth: leadColWidth,
+    transform: "translateX(var(--freeze-x, 0px))",
+    willChange: "transform",
+    boxSizing: "border-box",
+  };
+  const frozenLeadHeaderCell = {
+    ...frozenLeadBase,
+    position: "relative",
+    zIndex: 7,
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(12,14,20,0.96)",
+    boxShadow: "8px 0 14px rgba(0,0,0,0.22)",
+  };
+  const frozenLeadShiftCell = {
+    ...frozenLeadBase,
+    position: "relative",
+    zIndex: 6,
+    height: 28,
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(20,26,40,0.94)",
+    boxShadow: "8px 0 14px rgba(0,0,0,0.22)",
+  };
+  const frozenNameCell = {
+    ...frozenLeadBase,
+    position: "relative",
+    zIndex: 6,
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.08)",
+    boxShadow: "8px 0 14px rgba(0,0,0,0.22)",
+    backdropFilter: "blur(6px)",
   };
 
   const trackSelect = {
@@ -420,7 +462,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
   };
 
   return (
-    <div style={panel}>
+    <div ref={panelRef} style={panel}>
       {savePaused ? (
         <div
           style={{
@@ -442,13 +484,12 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
         </div>
       )}
 
-
       {/* Sticky Header (synced to body scroll) */}
       <div style={headerWrap}>
         <div style={headerOuter}>
           <div ref={headerRowRef} style={{ display: "grid", gap: 8 }}>
             <div style={gridRow}>
-              <div />
+              <div style={frozenLeadHeaderCell} data-freeze-left="1" />
             {days.map((d) => {
               const isToday = d === todayISO;
               const canAddShow =
@@ -519,7 +560,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
             </div>
 
             <div style={gridRow}>
-              <div />
+              <div style={frozenLeadHeaderCell} data-freeze-left="1" />
               {days.flatMap((d) => {
                 const slots = showSlotsForDate(d);
                 return slots.map((slot, idx) => {
@@ -634,7 +675,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                     return (
                       <div key={c.id} style={{ marginTop: 8 }}>
                         <div style={{ ...gridRow, marginBottom: 6 }}>
-                          <div />
+                          <div style={frozenLeadShiftCell} data-freeze-left="1" />
                           {days.map((d) => {
                             const shift = getShift(d, c.id) || {};
                             const slots = showSlotsForDate(d);
@@ -778,13 +819,13 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                             onMouseEnter={() => setHoverCrewId(c.id)}
                             onMouseLeave={() => setHoverCrewId(null)}
                             style={{
-                              borderRadius: 12,
+                              ...frozenNameCell,
                               padding: "10px 12px",
                               background: rowHover
-                                ? "rgba(255,255,255,0.10)"
-                                : "rgba(255,255,255,0.03)",
-                              border: "1px solid rgba(255,255,255,0.08)",
+                                ? "rgba(30,36,52,0.98)"
+                                : "rgba(22,28,44,0.96)",
                             }}
+                            data-freeze-left="1"
                           >
                             <div style={{ fontWeight: 900 }}>
                               {c.crew_name}
