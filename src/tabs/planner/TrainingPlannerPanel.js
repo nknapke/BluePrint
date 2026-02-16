@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import ExecuteDayModal from "./ExecuteDayModal";
+import ManagePlansModal from "./ManagePlansModal";
 import PlannerInfoModal from "./PlannerInfoModal";
 import ReopenDayModal from "./ReopenDayModal";
 import {
@@ -20,6 +21,25 @@ function clampText(s, n = 180) {
   if (!t) return "";
   if (t.length <= n) return t;
   return t.slice(0, n - 1) + "…";
+}
+
+function formatPrintDate(dateISO) {
+  if (!dateISO) return "";
+  const d = new Date(`${dateISO}T00:00:00`);
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function parseReasoningSummary(summary) {
@@ -84,6 +104,7 @@ function formatReasoningSummaryParts(day) {
   const priorityScore =
     day?.priority_score ?? (parsed ? parsed.score : null);
   const requiredCrew = day?.required_crew_count ?? null;
+  const scheduledCrew = day?.scheduled_crew_count ?? null;
   const updateCrew =
     day?.update_crew_count ??
     day?.people_affected ??
@@ -106,28 +127,37 @@ function formatReasoningSummaryParts(day) {
       : `Highest impact for this day's crew: Priority score ${fmtScore}`;
 
   const lines = [];
-  if (requiredCrew !== null) {
+  if (scheduledCrew !== null && Number(scheduledCrew) > 0) {
     lines.push(
-      `${requiredCrew} Crew Member${requiredCrew === 1 ? "" : "s"} - Required`
+      `${scheduledCrew} Crew Member${
+        scheduledCrew === 1 ? "" : "s"
+      } - Scheduled`
     );
   }
-  if (overdueCrew !== null) {
+  if (requiredCrew !== null && Number(requiredCrew) > 0) {
+    lines.push(
+      `${requiredCrew} Crew Member${
+        requiredCrew === 1 ? "" : "s"
+      } - Need Update`
+    );
+  }
+  if (overdueCrew !== null && Number(overdueCrew) > 0) {
     lines.push(
       `${overdueCrew} Crew Member${
         overdueCrew === 1 ? "" : "s"
       } - Out of Date`
     );
-  } else if (updateCrew !== null) {
+  } else if (updateCrew !== null && Number(updateCrew) > 0) {
     lines.push(
       `${updateCrew} Crew Member${updateCrew === 1 ? "" : "s"} - Out of Date`
     );
   }
-  if (neverTrained !== null) {
+  if (neverTrained !== null && Number(neverTrained) > 0) {
     lines.push(
       `${neverTrained} Crew Member${neverTrained === 1 ? "" : "s"} - No Prior Training`
     );
   }
-  if (extremeOverdue !== null) {
+  if (extremeOverdue !== null && Number(extremeOverdue) > 0) {
     lines.push(
       `${extremeOverdue} Crew Member${
         extremeOverdue === 1 ? "" : "s"
@@ -152,6 +182,7 @@ export default function TrainingPlannerPanel({
   supabaseGet,
   supabasePatch,
   supabasePost,
+  supabaseDelete,
   trainingGroups = [],
   refreshSignal = 0,
 }) {
@@ -163,6 +194,14 @@ export default function TrainingPlannerPanel({
   const [isGenerating, setIsGenerating] = useState(false);
   const [planId, setPlanId] = useState(null);
   const [genError, setGenError] = useState("");
+  const [planList, setPlanList] = useState([]);
+  const [planListLoading, setPlanListLoading] = useState(false);
+  const [planListError, setPlanListError] = useState("");
+  const [planStatusBusy, setPlanStatusBusy] = useState(false);
+  const [printBusy, setPrintBusy] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [manageBusyId, setManageBusyId] = useState(null);
+  const [manageError, setManageError] = useState("");
 
   /* ---------- days ---------- */
   const [days, setDays] = useState([]);
@@ -208,6 +247,11 @@ export default function TrainingPlannerPanel({
     [days, selectedDayId]
   );
 
+  const selectedPlan = useMemo(
+    () => planList.find((p) => Number(p.id) === Number(planId)) || null,
+    [planList, planId]
+  );
+
   const attendeeCounts = useMemo(() => {
     let included = 0;
     let excluded = 0;
@@ -220,6 +264,25 @@ export default function TrainingPlannerPanel({
 
   /* ---------------- data loading ---------------- */
 
+  const loadPlanList = useCallback(async () => {
+    if (!locId) return;
+    setPlanListLoading(true);
+    setPlanListError("");
+
+    try {
+      const rows = await supabaseGet(
+        `/rest/v1/training_plans?select=id,start_date,end_date,status,title,updated_at&location_id=eq.${locId}&order=start_date.desc`,
+        { bypassCache: true }
+      );
+      setPlanList(rows || []);
+    } catch (e) {
+      setPlanListError(String(e?.message || e));
+      setPlanList([]);
+    } finally {
+      setPlanListLoading(false);
+    }
+  }, [locId, supabaseGet]);
+
   const loadDays = useCallback(async () => {
     if (!planId) return;
     setDaysLoading(true);
@@ -229,7 +292,41 @@ export default function TrainingPlannerPanel({
       const rows = await supabaseGet(
         `/rest/v1/training_plan_days?select=id,plan_date,training_group_id,status,people_affected,extreme_overdue_count,reasoning_summary,required_crew_count,update_crew_count,overdue_crew_count,never_trained_count,extreme_overdue_crew_count,look_ahead_window_days,priority_score,scheduled_crew_count&plan_id=eq.${planId}&order=plan_date.asc`
       );
-      setDays(rows || []);
+      const dayRows = rows || [];
+      if (!dayRows.length) {
+        setDays([]);
+        return;
+      }
+
+      const dayIds = dayRows.map((d) => d.id).filter(Boolean);
+      let scheduledCounts = new Map();
+
+      if (dayIds.length) {
+        const attendeeRows = await supabaseGet(
+          `/rest/v1/v_plan_day_attendee_review?select=day_id,included,is_working&day_id=in.(${dayIds.join(
+            ","
+          )})`,
+          { bypassCache: true }
+        );
+
+        for (const r of attendeeRows || []) {
+          if (!r?.day_id) continue;
+          if (!r.included || !r.is_working) continue;
+          const current = scheduledCounts.get(r.day_id) || 0;
+          scheduledCounts.set(r.day_id, current + 1);
+        }
+      }
+
+      setDays(
+        dayRows.map((d) => {
+          const computed = scheduledCounts.get(d.id);
+          return {
+            ...d,
+            scheduled_crew_count:
+              computed !== undefined ? computed : d.scheduled_crew_count ?? null,
+          };
+        })
+      );
     } catch (e) {
       setDaysError(String(e?.message || e));
     } finally {
@@ -245,30 +342,18 @@ export default function TrainingPlannerPanel({
 
     try {
       const rows = await supabaseGet(
-        `/rest/v1/v_plan_day_effective_attendees?select=attendee_id,crew_id,included,source,track_id,track_name,is_out_of_date,no_prior_training,is_extreme_overdue,simulated_last_completed,actual_last_completed&day_id=eq.${selectedDayId}`
+        `/rest/v1/v_plan_day_attendee_review?select=attendee_id,crew_id,crew_name,crew_status,included,source,is_working,track_id,track_name,is_out_of_date,no_prior_training,is_extreme_overdue,simulated_last_completed,actual_last_completed&day_id=eq.${selectedDayId}&order=crew_name.asc`
       );
-
-      const crewIds = rows.map((r) => r.crew_id).join(",");
-      if (!crewIds) {
-        setAttendees([]);
-        return;
-      }
-
-      const crewRows = await supabaseGet(
-        `/rest/v1/crew_roster?select=id,crew_name,status&id=in.(${crewIds})`
-      );
-
-      const crewMap = new Map(crewRows.map((c) => [c.id, c]));
 
       setAttendees(
-        rows.map((r) => ({
+        (rows || []).map((r) => ({
           rowId: r.attendee_id,
           crewId: r.crew_id,
-          name: crewMap.get(r.crew_id)?.crew_name || "",
-          crewStatus: crewMap.get(r.crew_id)?.status || "",
+          name: r.crew_name || "",
+          crewStatus: r.crew_status || "",
           included: r.included,
           source: r.source,
-          trackId: r.track_id,
+          trackId: r.track_id ?? null,
           trackName: r.track_name || "",
           isOutOfDate: r.is_out_of_date ?? false,
           noPriorTraining: r.no_prior_training ?? false,
@@ -306,13 +391,24 @@ export default function TrainingPlannerPanel({
 
     setIsGenerating(true);
     setGenError("");
-    setPlanId(null);
-    setDays([]);
-    setSelectedDayId(null);
 
     try {
       const effectiveStart = nextStartDate || startDate;
       if (nextStartDate) setStartDate(nextStartDate);
+      const existing = planList.find((p) => p.start_date === effectiveStart);
+      if (existing?.status === "Posted") {
+        const ok = window.confirm(
+          "This plan is Posted. Regenerating will overwrite the schedule and set it back to Draft. Continue?"
+        );
+        if (!ok) {
+          setIsGenerating(false);
+          return;
+        }
+      }
+
+      setPlanId(null);
+      setDays([]);
+      setSelectedDayId(null);
 
       await supabaseRpc("generate_training_plan_v2", {
         p_location_id: Number(locId),
@@ -324,12 +420,34 @@ export default function TrainingPlannerPanel({
       );
 
       if (rows?.[0]?.id) setPlanId(rows[0].id);
+      await loadPlanList();
     } catch (e) {
       setGenError(String(e?.message || e));
     } finally {
       setIsGenerating(false);
     }
   }
+
+  useEffect(() => {
+    loadPlanList();
+  }, [loadPlanList]);
+
+  useEffect(() => {
+    setPlanId(null);
+    setPlanList([]);
+    setPlanListError("");
+    setDays([]);
+    setSelectedDayId(null);
+  }, [locId]);
+
+  useEffect(() => {
+    if (isGenerating) return;
+    if (!planId && planList.length > 0) {
+      const first = planList[0];
+      setPlanId(first.id);
+      if (first.start_date) setStartDate(first.start_date);
+    }
+  }, [planId, planList, isGenerating]);
 
   useEffect(() => {
     loadDays();
@@ -358,6 +476,72 @@ export default function TrainingPlannerPanel({
   }, [refreshSignal, planId, selectedDayId, loadDays, loadAttendees]);
 
   /* ---------------- actions ---------------- */
+
+  const handleSelectPlan = (value) => {
+    if (!value) return;
+    const nextId = Number(value);
+    if (!Number.isFinite(nextId)) return;
+    const nextPlan = planList.find((p) => Number(p.id) === nextId);
+    setPlanId(nextId);
+    setSelectedDayId(null);
+    setDays([]);
+    if (nextPlan?.start_date) setStartDate(nextPlan.start_date);
+  };
+
+  const updatePlanStatus = async (nextStatus) => {
+    if (!selectedPlan || planStatusBusy) return;
+    setPlanStatusBusy(true);
+    setPlanListError("");
+
+    try {
+      await supabasePatch(`/rest/v1/training_plans?id=eq.${selectedPlan.id}`, {
+        status: nextStatus,
+      });
+      setPlanList((prev) =>
+        prev.map((p) =>
+          Number(p.id) === Number(selectedPlan.id)
+            ? { ...p, status: nextStatus }
+            : p
+        )
+      );
+    } catch (e) {
+      setPlanListError(String(e?.message || e));
+    } finally {
+      setPlanStatusBusy(false);
+    }
+  };
+
+  const deletePlan = async (plan) => {
+    if (!plan?.id || !supabaseDelete) return;
+    setManageBusyId(plan.id);
+    setManageError("");
+
+    try {
+      const dayRows = await supabaseGet(
+        `/rest/v1/training_plan_days?select=id&plan_id=eq.${plan.id}`
+      );
+      const dayIds = (dayRows || []).map((d) => d.id).filter(Boolean);
+      if (dayIds.length) {
+        await supabaseDelete(
+          `/rest/v1/training_plan_day_attendees?day_id=in.(${dayIds.join(",")})`
+        );
+      }
+      await supabaseDelete(`/rest/v1/training_plan_days?plan_id=eq.${plan.id}`);
+      await supabaseDelete(`/rest/v1/training_plans?id=eq.${plan.id}`);
+
+      setPlanList((prev) => prev.filter((p) => Number(p.id) !== Number(plan.id)));
+      if (Number(planId) === Number(plan.id)) {
+        setPlanId(null);
+        setDays([]);
+        setSelectedDayId(null);
+      }
+      await loadPlanList();
+    } catch (e) {
+      setManageError(String(e?.message || e));
+    } finally {
+      setManageBusyId(null);
+    }
+  };
 
   async function setAttendeeIncluded(rowId, crewId, nextIncluded) {
     setSavingCrewId(crewId);
@@ -443,6 +627,260 @@ export default function TrainingPlannerPanel({
 
   /* ---------------- render ---------------- */
 
+  const planRangeLabel = selectedPlan?.start_date
+    ? `${formatPrintDate(selectedPlan.start_date)}${
+        selectedPlan?.end_date ? ` – ${formatPrintDate(selectedPlan.end_date)}` : ""
+      }`
+    : "";
+
+  const handlePrint = async () => {
+    if (!planId || printBusy) return;
+    setPrintBusy(true);
+    const title = selectedPlan?.title || "Training Plan";
+    const status = selectedPlan?.status || "Draft";
+    const header = planRangeLabel ? `${planRangeLabel} (${status})` : status;
+    try {
+      const printDays = await supabaseGet(
+        `/rest/v1/training_plan_days?select=id,plan_date,training_group_id,status,people_affected,extreme_overdue_count,reasoning_summary,required_crew_count,update_crew_count,overdue_crew_count,never_trained_count,extreme_overdue_crew_count,look_ahead_window_days,priority_score,scheduled_crew_count&plan_id=eq.${planId}&order=plan_date.asc`,
+        { bypassCache: true }
+      );
+      const dayRows = Array.isArray(printDays) ? printDays : [];
+      if (!dayRows.length) return;
+      const dayIds = dayRows.map((d) => d.id).filter(Boolean);
+      const attendeesByDay = new Map();
+      const groupTrainingMap = new Map();
+
+      if (dayIds.length) {
+        const rows = await supabaseGet(
+          `/rest/v1/v_plan_day_attendee_review?select=day_id,crew_name,track_name,track_id,included,is_working,is_out_of_date,no_prior_training,is_extreme_overdue&day_id=in.(${dayIds.join(
+            ","
+          )})&order=crew_name.asc`,
+          { bypassCache: true }
+        );
+
+        for (const r of rows || []) {
+          if (!r || !r.day_id) continue;
+          if (!r.included || !r.is_working) continue;
+          const list = attendeesByDay.get(r.day_id) || [];
+          list.push(r);
+          attendeesByDay.set(r.day_id, list);
+        }
+      }
+
+      const groupIds = Array.from(
+        new Set(dayRows.map((d) => d.training_group_id).filter(Boolean))
+      );
+
+      if (locId && groupIds.length) {
+        const tRows = await supabaseGet(
+          `/rest/v1/training_definitions?select=id,training_name,training_group_id,is_training_active,location_id&location_id=eq.${Number(
+            locId
+          )}&training_group_id=in.(${groupIds.join(
+            ","
+          )})&is_training_active=eq.true&order=training_name.asc`,
+          { bypassCache: true }
+        );
+
+        for (const t of tRows || []) {
+          if (!t?.training_group_id) continue;
+          const list = groupTrainingMap.get(t.training_group_id) || [];
+          list.push(t.training_name || "Unnamed training");
+          groupTrainingMap.set(t.training_group_id, list);
+        }
+      }
+
+      const rowsHtml = dayRows
+        .map((d) => {
+          const groupName = trainingGroupById.get(d.training_group_id)?.name;
+          const scheduledCrewCount =
+            d.scheduled_crew_count ?? d.scheduledCrewCount ?? null;
+          const noCrewScheduled =
+            scheduledCrewCount !== null && Number(scheduledCrewCount) === 0;
+          const noRequiredTraining = Number(d.people_affected || 0) === 0;
+          const requirementLabel = noCrewScheduled
+            ? "No Crew"
+            : noRequiredTraining
+            ? "Optional"
+            : "Required";
+
+          const crewList = (attendeesByDay.get(d.id) || []).slice();
+          crewList.sort((a, b) => {
+            const aTrack = (a.track_name || a.track_id || "").toString();
+            const bTrack = (b.track_name || b.track_id || "").toString();
+            const trackCmp = aTrack.localeCompare(bTrack, undefined, {
+              sensitivity: "base",
+              numeric: true,
+            });
+            if (trackCmp !== 0) return trackCmp;
+            const aName = (a.crew_name || "").toString();
+            const bName = (b.crew_name || "").toString();
+            return aName.localeCompare(bName, undefined, {
+              sensitivity: "base",
+              numeric: true,
+            });
+          });
+          const crewHtml = crewList.length
+            ? crewList
+                .map((r) => {
+                  const track = r.track_name || r.track_id || "No track";
+                  const needsUpdate =
+                    r.is_out_of_date || r.no_prior_training || r.is_extreme_overdue;
+                  const lineText = `${escapeHtml(
+                    r.crew_name || "Unknown"
+                  )} — ${escapeHtml(String(track).toUpperCase())}`;
+                  return needsUpdate
+                    ? `<div class="crew-line"><span class="crew-need">${lineText}</span></div>`
+                    : `<div class="crew-line">${lineText}</div>`;
+                })
+                .join("")
+            : `<div class="crew-none">No crew scheduled</div>`;
+
+          const trainingList = d.training_group_id
+            ? groupTrainingMap.get(d.training_group_id) || []
+            : [];
+          const trainingHtml = trainingList.length
+            ? `<ul class="group-list">${trainingList
+                .map((name) => `<li>${escapeHtml(name)}</li>`)
+                .join("")}</ul>`
+            : `<div class="crew-none">No trainings listed</div>`;
+
+          const scoreVal =
+            d.priority_score !== null && d.priority_score !== undefined
+              ? Number(d.priority_score)
+              : null;
+          const scoreText =
+            scoreVal !== null && Number.isFinite(scoreVal)
+              ? Number.isInteger(scoreVal)
+                ? scoreVal
+                : scoreVal.toFixed(1)
+              : null;
+
+          const scheduledCount = crewList.length;
+          const needUpdateCount =
+            d.required_crew_count ?? d.people_affected ?? null;
+          const noPriorCount = d.never_trained_count ?? null;
+          const extremeCount = d.extreme_overdue_crew_count ?? null;
+          const outOfDateCount =
+            d.overdue_crew_count ?? d.update_crew_count ?? null;
+
+          const requirementHeader =
+            scoreText !== null
+              ? `${requirementLabel.toUpperCase()} [ Score = ${scoreText} ]`
+              : requirementLabel.toUpperCase();
+
+          let reasonHtml = "";
+          const scheduledValue = Number.isFinite(scheduledCount)
+            ? scheduledCount
+            : 0;
+          const needUpdateValue =
+            needUpdateCount !== null ? Number(needUpdateCount) : 0;
+
+          if (scheduledValue > 0 || needUpdateValue > 0) {
+            reasonHtml += `<div class="reason-line">Scheduled: ${scheduledValue} / Needs Update: ${needUpdateValue}</div>`;
+          }
+
+          const subLines = [];
+          if (outOfDateCount !== null && Number(outOfDateCount) > 0) {
+            subLines.push(`Out of Date: ${outOfDateCount}`);
+          }
+          if (noPriorCount !== null && Number(noPriorCount) > 0) {
+            subLines.push(`No Prior Trainings: ${noPriorCount}`);
+          }
+          if (extremeCount !== null && Number(extremeCount) > 0) {
+            subLines.push(`30+ Day Overdue: ${extremeCount}`);
+          }
+
+          if (subLines.length) {
+            reasonHtml += `<div class="reason-sub">${subLines
+              .map((line) => `<div class="reason-line">- ${escapeHtml(line)}</div>`)
+              .join("")}</div>`;
+          }
+
+          if (!reasonHtml) {
+            reasonHtml = `<div class="reason-none">No urgent reasons</div>`;
+          }
+
+          return `
+            <tr>
+              <td>${escapeHtml(formatShortWeekdayDate(d.plan_date))}</td>
+              <td>
+                <div class="group-title">${escapeHtml(
+                  groupName || "No required training"
+                )}</div>
+                ${trainingHtml}
+              </td>
+              <td>${crewHtml}</td>
+              <td>
+                <div class="reason-title">${escapeHtml(requirementHeader)}</div>
+                ${reasonHtml}
+              </td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(title)}</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 24px; color: #111; }
+      h1 { font-size: 22px; margin: 0 0 6px; }
+      h2 { font-size: 14px; font-weight: 600; margin: 0 0 20px; color: #555; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { padding: 10px 8px; border-bottom: 1px solid #ddd; text-align: left; vertical-align: top; }
+      th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #666; }
+      .group-title { font-weight: 700; margin-bottom: 6px; }
+      .group-list { margin: 0; padding-left: 18px; }
+      .group-list li { margin-bottom: 4px; }
+      .crew-line { margin-bottom: 4px; }
+      .crew-need {
+        background: rgba(255, 210, 120, 0.12);
+        border: 1px solid rgba(255, 210, 120, 0.25);
+        border-radius: 6px;
+        padding: 2px 6px;
+        display: inline-block;
+      }
+      .crew-none { color: #777; font-style: italic; }
+      .reason-title { font-weight: 700; margin-bottom: 6px; }
+      .reason-line { margin-bottom: 4px; }
+      .reason-sub { margin-left: 16px; }
+      .reason-none { color: #777; font-style: italic; }
+      @media print { body { padding: 0; } }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeHtml(title)}</h1>
+    <h2>${escapeHtml(header)}</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Training Group</th>
+          <th>Crew + Track</th>
+          <th>Reasoning</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+  </body>
+</html>`;
+
+      const win = window.open("", "_blank", "width=920,height=720");
+      if (!win) return;
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      win.print();
+    } finally {
+      setPrintBusy(false);
+    }
+  };
+
   const sectionCard = {
     ...S.card,
     padding: 16,
@@ -506,24 +944,93 @@ export default function TrainingPlannerPanel({
           </div>
         </div>
 
-        <div style={{ marginTop: 12, display: "flex", gap: 12 }}>
-          <div style={{ minWidth: 200 }}>
+        <div
+          style={{
+            marginTop: 12,
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+            alignItems: "flex-end",
+          }}
+        >
+          <div style={{ minWidth: 160, flex: "0 0 auto" }}>
             <div style={{ ...S.helper, marginBottom: 6 }}>Start date</div>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              style={S.input}
+              style={{ ...S.input, width: 160 }}
             />
           </div>
 
+          <div style={{ minWidth: 240, flex: "1 1 240px" }}>
+            <div style={{ ...S.helper, marginBottom: 6 }}>Plan library</div>
+            <select
+              value={planId ?? ""}
+              onChange={(e) => handleSelectPlan(e.target.value)}
+              style={{ ...S.select, width: "100%" }}
+              disabled={planListLoading || !planList.length}
+            >
+              {!planList.length ? (
+                <option value="">No plans yet</option>
+              ) : null}
+              {planList.map((p) => {
+                const start = p.start_date ? formatShortDate(p.start_date) : "";
+                const end = p.end_date ? formatShortDate(p.end_date) : "";
+                const range = start && end ? `${start}–${end}` : start || "";
+                const label = `${range}${p.status ? ` (${p.status})` : ""}`;
+                return (
+                  <option key={p.id} value={p.id}>
+                    {label}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "flex-end" }}>
+            <button
+              style={S.button("subtle", !planList.length)}
+              disabled={!planList.length}
+              onClick={() => setManageOpen(true)}
+            >
+              Manage plans
+            </button>
+          </div>
+
           {planId ? (
-            <div style={{ display: "flex", alignItems: "flex-end" }}>
-              <span style={S.badge("info")}>Plan #{planId}</span>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-end",
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
+              {selectedPlan ? (
+                <button
+                  style={S.button("ghost", planStatusBusy)}
+                  disabled={planStatusBusy}
+                  onClick={() =>
+                    updatePlanStatus(
+                      selectedPlan.status === "Posted" ? "Draft" : "Posted"
+                    )
+                  }
+                >
+                  {selectedPlan.status === "Posted"
+                    ? "Unpost plan"
+                    : "Post plan"}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
 
+        {planListError ? (
+          <div style={{ ...S.helper, color: "rgba(255,120,120,0.95)" }}>
+            {planListError}
+          </div>
+        ) : null}
         {genError && (
           <div style={{ ...S.helper, color: "rgba(255,120,120,0.95)" }}>
             {genError}
@@ -559,11 +1066,15 @@ export default function TrainingPlannerPanel({
             </div>
 
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {days.length ? (
-                <span style={S.badge("info")}>{days.length} days</span>
-              ) : null}
               <button style={S.button("ghost")} onClick={() => setInfoOpen(true)}>
                 Info
+              </button>
+              <button
+                style={S.button("ghost", !days.length || printBusy)}
+                onClick={handlePrint}
+                disabled={!days.length || printBusy}
+              >
+                {printBusy ? "Preparing…" : "Print schedule"}
               </button>
             </div>
           </div>
@@ -678,9 +1189,18 @@ export default function TrainingPlannerPanel({
                       </span>
                     </div>
 
-                    {(d.reasoning_summary ||
-                      noRequiredTraining ||
-                      noCrewScheduled) && (
+                    {(() => {
+                      const { headline, lines } =
+                        formatReasoningSummaryParts(d);
+                      const hasReasonLines = lines.length > 0;
+                      const showReasonBox =
+                        noCrewScheduled ||
+                        noRequiredTraining ||
+                        (hasGroup && !noRequiredTraining && hasReasonLines);
+
+                      if (!showReasonBox) return null;
+
+                      return (
                       <div
                         style={{
                           padding: "8px 10px",
@@ -703,53 +1223,45 @@ export default function TrainingPlannerPanel({
                             No Crew Members Scheduled for this Day
                           </div>
                         ) : hasGroup && !noRequiredTraining ? (
-                          (() => {
-                            const { headline, lines } =
-                              formatReasoningSummaryParts(d);
-                            return (
-                              <div
-                                style={{
-                                  display: "grid",
-                                  gap: 4,
-                                  fontSize: 12.5,
-                                  color: "rgba(255,255,255,0.82)",
-                                  lineHeight: 1.35,
-                                }}
-                              >
-                                <div>{headline}</div>
-                                {lines.length > 0 && (
-                                  <div
+                          <div
+                            style={{
+                              display: "grid",
+                              gap: 4,
+                              fontSize: 12.5,
+                              color: "rgba(255,255,255,0.82)",
+                              lineHeight: 1.35,
+                            }}
+                          >
+                            <div>{headline}</div>
+                            <div
+                              style={{
+                                display: "grid",
+                                gap: 2,
+                                paddingLeft: 10,
+                              }}
+                            >
+                              {lines.map((line) => (
+                                <div
+                                  key={line}
+                                  style={{
+                                    display: "flex",
+                                    gap: 6,
+                                    alignItems: "flex-start",
+                                  }}
+                                >
+                                  <span
                                     style={{
-                                      display: "grid",
-                                      gap: 2,
-                                      paddingLeft: 10,
+                                      color: "rgba(255,255,255,0.55)",
+                                      lineHeight: 1.2,
                                     }}
                                   >
-                                    {lines.map((line) => (
-                                      <div
-                                        key={line}
-                                        style={{
-                                          display: "flex",
-                                          gap: 6,
-                                          alignItems: "flex-start",
-                                        }}
-                                      >
-                                        <span
-                                          style={{
-                                            color: "rgba(255,255,255,0.55)",
-                                            lineHeight: 1.2,
-                                          }}
-                                        >
-                                          •
-                                        </span>
-                                        <span>{line}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()
+                                    •
+                                  </span>
+                                  <span>{line}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         ) : (
                           <div
                             style={{
@@ -763,7 +1275,8 @@ export default function TrainingPlannerPanel({
                           </div>
                         )}
                       </div>
-                    )}
+                      );
+                    })()}
                   </button>
                 );
               })}
@@ -963,6 +1476,17 @@ export default function TrainingPlannerPanel({
         setNotes={setExecuteNotes}
         onConfirm={executeDay}
         onClose={() => setExecuteOpen(false)}
+      />
+
+      <ManagePlansModal
+        S={S}
+        open={manageOpen}
+        onClose={() => setManageOpen(false)}
+        plans={planList}
+        activePlanId={planId}
+        busyId={manageBusyId}
+        error={manageError}
+        onDelete={deletePlan}
       />
 
       <PlannerInfoModal S={S} open={infoOpen} onClose={() => setInfoOpen(false)} />
