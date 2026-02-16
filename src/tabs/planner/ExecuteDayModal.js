@@ -56,8 +56,9 @@ export default function ExecuteDayModal({
     const parts = [];
     if (!r.is_working) parts.push("Not working");
     if (!r.included) parts.push("Excluded");
-    if (r.no_prior_training) parts.push("No prior history");
-    if (r.is_out_of_date) parts.push("Out of date");
+    const hasNoPrior = !!r.no_prior_training;
+    if (hasNoPrior) parts.push("No prior history");
+    if (r.is_out_of_date && !hasNoPrior) parts.push("Out of date");
     if (r.is_extreme_overdue) parts.push("30+ days overdue");
     if (
       r.included &&

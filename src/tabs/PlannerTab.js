@@ -11,6 +11,7 @@ export default function PlannerTab({
   supabaseGet,
   supabasePost,
   supabasePatch,
+  supabaseDelete,
   trainingGroups = /** @type {import("../types/domain").TrainingGroup[]} */ ([]),
   tracks = /** @type {import("../types/domain").Track[]} */ ([]),
   refreshSignal = 0,
@@ -66,6 +67,7 @@ export default function PlannerTab({
         supabaseGet={supabaseGet}
         supabasePatch={supabasePatch}
         supabasePost={supabasePost}
+        supabaseDelete={supabaseDelete}
         trainingGroups={trainingGroups}
         refreshSignal={refreshSignal}
       />

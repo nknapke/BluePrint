@@ -33,12 +33,6 @@ function formatPrintDate(dateISO) {
   });
 }
 
-function parseISODateToTime(dateISO) {
-  if (!dateISO) return null;
-  const t = new Date(`${dateISO}T00:00:00`).getTime();
-  return Number.isNaN(t) ? null : t;
-}
-
 function isTruthyFlag(value) {
   return value === true || value === "true" || value === "t" || value === 1;
 }
@@ -87,8 +81,11 @@ function buildCompletionLabel(simDate, actualDate) {
 
 function buildAttendeeReasonLines(attendee) {
   const lines = [];
-  if (attendee.isOutOfDate) lines.push({ text: "Out of Date", tone: "bad" });
-  if (attendee.noPriorTraining) {
+  const hasNoPrior = attendee.noPriorTraining === true;
+  const hasOutOfDate = attendee.isOutOfDate === true && !hasNoPrior;
+
+  if (hasOutOfDate) lines.push({ text: "Out of Date", tone: "bad" });
+  if (hasNoPrior) {
     lines.push({ text: "No Prior Training History", tone: "bad" });
   }
   if (attendee.isExtremeOverdue) {
@@ -309,11 +306,11 @@ export default function TrainingPlannerPanel({
       }
 
       const dayIds = dayRows.map((d) => d.id).filter(Boolean);
-      let scheduledCounts = new Map();
+      let dayStats = new Map();
 
       if (dayIds.length) {
         const attendeeRows = await supabaseGet(
-          `/rest/v1/v_plan_day_attendee_review?select=day_id,included,is_working&day_id=in.(${dayIds.join(
+          `/rest/v1/v_plan_day_attendee_review?select=day_id,included,is_working,is_out_of_date,no_prior_training,is_extreme_overdue&day_id=in.(${dayIds.join(
             ","
           )})`,
           { bypassCache: true }
@@ -321,19 +318,48 @@ export default function TrainingPlannerPanel({
 
         for (const r of attendeeRows || []) {
           if (!r?.day_id) continue;
-          if (!r.included || !r.is_working) continue;
-          const current = scheduledCounts.get(r.day_id) || 0;
-          scheduledCounts.set(r.day_id, current + 1);
+          if (!isTruthyFlag(r.included) || !isTruthyFlag(r.is_working)) continue;
+
+          const noPrior = isTruthyFlag(r.no_prior_training);
+          const outOfDate = isTruthyFlag(r.is_out_of_date) && !noPrior;
+          const extreme = isTruthyFlag(r.is_extreme_overdue);
+
+          const current = dayStats.get(r.day_id) || {
+            scheduled: 0,
+            needUpdate: 0,
+            outOfDate: 0,
+            noPrior: 0,
+            extreme: 0,
+          };
+
+          current.scheduled += 1;
+          if (outOfDate) current.outOfDate += 1;
+          if (noPrior) current.noPrior += 1;
+          if (extreme) current.extreme += 1;
+          if (outOfDate || noPrior || extreme) current.needUpdate += 1;
+
+          dayStats.set(r.day_id, current);
         }
       }
 
       setDays(
         dayRows.map((d) => {
-          const computed = scheduledCounts.get(d.id);
+          const stats = dayStats.get(d.id);
           return {
             ...d,
             scheduled_crew_count:
-              computed !== undefined ? computed : d.scheduled_crew_count ?? null,
+              stats?.scheduled ?? d.scheduled_crew_count ?? null,
+            required_crew_count:
+              stats?.needUpdate ?? d.required_crew_count ?? d.people_affected ?? null,
+            people_affected:
+              stats?.needUpdate ?? d.people_affected ?? d.required_crew_count ?? null,
+            update_crew_count:
+              stats?.outOfDate ?? d.update_crew_count ?? d.overdue_crew_count ?? null,
+            overdue_crew_count:
+              stats?.outOfDate ?? d.overdue_crew_count ?? d.update_crew_count ?? null,
+            never_trained_count: stats?.noPrior ?? d.never_trained_count ?? null,
+            extreme_overdue_crew_count:
+              stats?.extreme ?? d.extreme_overdue_crew_count ?? null,
           };
         })
       );
@@ -733,16 +759,10 @@ export default function TrainingPlannerPanel({
             ? crewList
                 .map((r) => {
                   const track = r.track_name || r.track_id || "No track";
-                  const hasUrgencyFlag =
+                  const needsUpdate =
                     isTruthyFlag(r.is_out_of_date) ||
                     isTruthyFlag(r.no_prior_training) ||
                     isTruthyFlag(r.is_extreme_overdue);
-                  const simulatedTime = parseISODateToTime(r.simulated_last_completed);
-                  const actualTime = parseISODateToTime(r.actual_last_completed);
-                  const needsUpdate =
-                    hasUrgencyFlag ||
-                    (simulatedTime !== null &&
-                      (actualTime === null || simulatedTime > actualTime));
                   const lineText = `${escapeHtml(
                     r.crew_name || "Unknown"
                   )} — ${escapeHtml(String(track).toUpperCase())}`;
@@ -773,45 +793,29 @@ export default function TrainingPlannerPanel({
                 : scoreVal.toFixed(1)
               : null;
 
-          const scheduledCount = crewList.length;
-          const needUpdateCount =
-            d.required_crew_count ?? d.people_affected ?? null;
-          const noPriorCount = d.never_trained_count ?? null;
-          const extremeCount = d.extreme_overdue_crew_count ?? null;
-          const outOfDateCount =
-            d.overdue_crew_count ?? d.update_crew_count ?? null;
-
           const requirementHeader =
             scoreText !== null
               ? `${requirementLabel.toUpperCase()} [ Score = ${scoreText} ]`
               : requirementLabel.toUpperCase();
 
+          const reasonParts = formatReasoningSummaryParts(d);
           let reasonHtml = "";
-          const scheduledValue = Number.isFinite(scheduledCount)
-            ? scheduledCount
-            : 0;
-          const needUpdateValue =
-            needUpdateCount !== null ? Number(needUpdateCount) : 0;
-
-          if (scheduledValue > 0 || needUpdateValue > 0) {
-            reasonHtml += `<div class="reason-line">Scheduled: ${scheduledValue} / Needs Update: ${needUpdateValue}</div>`;
-          }
-
-          const subLines = [];
-          if (outOfDateCount !== null && Number(outOfDateCount) > 0) {
-            subLines.push(`Out of Date: ${outOfDateCount}`);
-          }
-          if (noPriorCount !== null && Number(noPriorCount) > 0) {
-            subLines.push(`No Prior Trainings: ${noPriorCount}`);
-          }
-          if (extremeCount !== null && Number(extremeCount) > 0) {
-            subLines.push(`30+ Day Overdue: ${extremeCount}`);
-          }
-
-          if (subLines.length) {
-            reasonHtml += `<div class="reason-sub">${subLines
-              .map((line) => `<div class="reason-line">- ${escapeHtml(line)}</div>`)
-              .join("")}</div>`;
+          if (noCrewScheduled) {
+            reasonHtml = `<div class="reason-line">No Crew Members Scheduled for this Day</div>`;
+          } else if (noRequiredTraining) {
+            reasonHtml =
+              `<div class="reason-line">All Trainings Complete for Today's Crew Members — Optional Trainings Today by Request</div>`;
+          } else {
+            reasonHtml += `<div class="reason-line">${escapeHtml(reasonParts.headline)}</div>`;
+            if (reasonParts.lines.length) {
+              reasonHtml += `<div class="reason-sub">${reasonParts.lines
+                .map((line) => `<div class="reason-line">- ${escapeHtml(line)}</div>`)
+                .join("")}</div>`;
+            } else if (d.reasoning_summary) {
+              reasonHtml += `<div class="reason-sub"><div class="reason-line">- ${escapeHtml(
+                clampText(d.reasoning_summary, 260)
+              )}</div></div>`;
+            }
           }
 
           if (!reasonHtml) {
@@ -854,26 +858,18 @@ export default function TrainingPlannerPanel({
       .group-list li { margin-bottom: 4px; }
       .crew-line { margin-bottom: 4px; }
       .crew-need {
-        background: #ffe2bb;
-        border: 1px solid #cc6f00;
+        background: rgba(255, 210, 120, 0.12);
+        border: 1px solid rgba(255, 210, 120, 0.25);
         border-radius: 6px;
         padding: 2px 6px;
         display: inline-block;
-        color: #7a2f00;
-        font-weight: 700;
       }
       .crew-none { color: #777; font-style: italic; }
       .reason-title { font-weight: 700; margin-bottom: 6px; }
       .reason-line { margin-bottom: 4px; }
       .reason-sub { margin-left: 16px; }
       .reason-none { color: #777; font-style: italic; }
-      @media print {
-        body {
-          padding: 0;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-        }
-      }
+      @media print { body { padding: 0; } }
     </style>
   </head>
   <body>

@@ -72,6 +72,10 @@ export default function PlannerInfoModal({ S, open, onClose }) {
             <li>Overdue beats due today, which beats due soon.</li>
             <li>One very urgent training can carry a group.</li>
             <li>Groups that help more people get a boost.</li>
+            <li>
+              The number of trainings inside a group does not increase the
+              score.
+            </li>
             <li>30+ days overdue is tracked and shown.</li>
           </ul>
 

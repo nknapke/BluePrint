@@ -2009,6 +2009,7 @@ export default function App() {
               activeLocationId={activeLocationId}
               supabaseGet={supabaseGet}
               supabasePost={supabasePost}
+              supabasePatch={supabasePatch}
               supabaseDelete={supabaseDelete}
               tracks={tracks}
             />
