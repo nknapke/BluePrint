@@ -166,7 +166,7 @@ export default function CrewSchedulesTab({
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
+            justifyContent: "flex-start",
             alignItems: "center",
             gap: 16,
             flexWrap: "wrap",
@@ -177,27 +177,6 @@ export default function CrewSchedulesTab({
             <div style={heroSubtitle}>
               Weekly Crew Schedules and Track Assignments
             </div>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              flexWrap: "wrap",
-            }}
-          >
-            {crewRangeLabel ? <span style={pill}>{crewRangeLabel}</span> : null}
-
-            {saveState ? (
-              <span style={S.badge(saveState.tone)}>{saveState.label}</span>
-            ) : null}
-
-            {roster?.savePaused ? (
-              <button style={S.button("ghost")} onClick={roster.retrySaving}>
-                Retry sync
-              </button>
-            ) : null}
           </div>
         </div>
 
@@ -218,22 +197,27 @@ export default function CrewSchedulesTab({
             <div style={{ marginTop: 6, opacity: 0.9 }}>
               {roster.saveError}
             </div>
+            <div style={{ marginTop: 8 }}>
+              <button style={S.button("ghost")} onClick={roster.retrySaving}>
+                Retry sync
+              </button>
+            </div>
           </div>
         ) : null}
       </div>
 
       <div style={controlCard}>
-        <div style={controlRow}>
-          <Segmented
-            value={crewViewMode}
-            onChange={(v) => setCrewViewMode(v)}
-            options={[
-              { value: "grid", label: "Week grid" },
-              { value: "day", label: "Single day" },
-            ]}
-          />
+        <div style={{ ...controlRow, justifyContent: "space-between" }}>
+          <div style={{ ...controlRow, gap: 8, flex: "0 1 auto" }}>
+            <Segmented
+              value={crewViewMode}
+              onChange={(v) => setCrewViewMode(v)}
+              options={[
+                { value: "grid", label: "Week grid" },
+                { value: "day", label: "Single day" },
+              ]}
+            />
 
-          <div style={{ display: "flex", gap: 8 }}>
             <button
               style={S.button("ghost", roster?.savePaused)}
               onClick={() => roster.shiftWeek(-1)}
@@ -251,42 +235,49 @@ export default function CrewSchedulesTab({
             >
               Next
             </button>
+
+            <button
+              style={S.button("ghost", clearBusy || roster?.savePaused)}
+              onClick={clearWeekAssignments}
+              disabled={clearBusy || roster?.savePaused}
+              title="Clear all assignments for this week"
+            >
+              {clearBusy ? "Clearing…" : "Clear week"}
+            </button>
+
+            <button
+              style={S.button("subtle", roster?.savePaused)}
+              onClick={() => setImportOpen(true)}
+              disabled={roster?.savePaused}
+            >
+              Import Master Schedule
+            </button>
           </div>
-
-          <button
-            style={S.button("ghost", clearBusy || roster?.savePaused)}
-            onClick={clearWeekAssignments}
-            disabled={clearBusy || roster?.savePaused}
-            title="Clear all assignments for this week"
-          >
-            {clearBusy ? "Clearing…" : "Clear week"}
-          </button>
-
-          <button style={S.button("subtle")} onClick={() => setImportOpen(true)}>
-            Import Master Schedule
-          </button>
 
           <div
             style={{
-              flex: "1 1 320px",
               display: "flex",
-              justifyContent: "center",
+              alignItems: "center",
+              gap: 8,
+              flex: "1 1 520px",
+              minWidth: 260,
+              marginLeft: "auto",
             }}
           >
-            <input
-              value={crewSearch || ""}
-              onChange={(e) => setCrewSearch(e.target.value)}
-              placeholder="Search crew or department"
-              style={{ ...inputStyle, width: "100%" }}
-              disabled={roster?.savePaused}
-            />
+            <div style={{ flex: "1 1 420px", minWidth: 180, maxWidth: 560 }}>
+              <input
+                value={crewSearch || ""}
+                onChange={(e) => setCrewSearch(e.target.value)}
+                placeholder="Search crew or department"
+                style={{ ...inputStyle, width: "100%", maxWidth: "none" }}
+                disabled={roster?.savePaused}
+              />
+            </div>
+            {crewRangeLabel ? <span style={pill}>{crewRangeLabel}</span> : null}
+            {saveState ? (
+              <span style={S.badge(saveState.tone)}>{saveState.label}</span>
+            ) : null}
           </div>
-
-          {crewRangeLabel ? (
-            <span style={{ ...pill, marginLeft: "auto" }}>
-              {crewRangeLabel}
-            </span>
-          ) : null}
         </div>
 
       {crewViewMode === "day" ? (
@@ -345,6 +336,7 @@ export default function CrewSchedulesTab({
           roster={roster}
           search={crewSearch}
           tracks={tracks}
+          displayMode="compact"
         />
       ) : (
         <CrewSchedulesDayView

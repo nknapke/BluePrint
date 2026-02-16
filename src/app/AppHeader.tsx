@@ -19,6 +19,7 @@ type Props = {
   activeTab: TabId;
   setActiveTab: Dispatch<SetStateAction<TabId>>;
   tabLabel: (key: TabId) => string;
+  wide?: boolean;
 };
 
 const LOGO_WRAPPER_STYLE: CSSProperties = {
@@ -77,10 +78,29 @@ export function AppHeader({
   activeTab,
   setActiveTab,
   tabLabel,
+  wide = false,
 }: Props) {
+  const headerRowStyle: CSSProperties = wide
+    ? {
+        ...S.headerRow,
+        justifyContent: "flex-start",
+        alignItems: "center",
+        gap: 12,
+      }
+    : S.headerRow;
+  const tabsBarStyle: CSSProperties = wide
+    ? {
+        ...S.pillBar,
+        flex: "1 1 720px",
+        marginLeft: "auto",
+        justifyContent: "space-between",
+        maxWidth: 1020,
+      }
+    : S.pillBar;
+
   return (
-    <div style={S.topBar}>
-      <div style={S.headerRow}>
+    <div style={S.topBar} data-app-topbar="true">
+      <div style={headerRowStyle}>
         <div style={S.titleBlock}>
           <div
             style={{
@@ -124,7 +144,7 @@ export function AppHeader({
           )}
         </div>
 
-        <div style={S.pillBar}>
+        <div style={tabsBarStyle}>
           {tabs.map((t) => (
             <div
               key={t}

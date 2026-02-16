@@ -21,7 +21,13 @@ const TIME_OPTIONS = Array.from({ length: 96 }, (_, i) => {
 
 /** ---------- GRID ---------- */
 
-export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
+export default function CrewSchedulesGrid({
+  S,
+  roster,
+  search,
+  tracks = [],
+  displayMode = "compact",
+}) {
   const loading = !!(
     roster?.crewLoading ||
     roster?.assignLoading ||
@@ -35,9 +41,11 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
     roster?.shiftError ||
     "";
   const savePaused = !!roster?.savePaused;
+  const compact = displayMode === "compact";
 
   const [hoverCrewId, setHoverCrewId] = useState(null);
   const [hoverDate, setHoverDate] = useState(null);
+  const [stickyOffset, setStickyOffset] = useState(112);
   const panelRef = useRef(null);
   const headerRowRef = useRef(null);
   const bodyScrollRef = useRef(null);
@@ -64,32 +72,47 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
     [roster]
   );
 
-  const maxShows = useMemo(() => {
-    let max = 1;
-    for (const d of days) {
+  const showColumnCountForDate = useCallback(
+    (d) => {
       const count = showsForDate(d).length;
-      if (count > max) max = count;
+      const clamped = Math.min(4, Math.max(0, count));
+      if (clamped === 1) return 2;
+      return Math.max(1, clamped);
+    },
+    [showsForDate]
+  );
+
+  const dayColCountByDate = useMemo(() => {
+    const map = new Map();
+    for (const d of days) {
+      map.set(d, showColumnCountForDate(d));
     }
-    return Math.min(4, Math.max(1, max));
-  }, [days, showsForDate]);
+    return map;
+  }, [days, showColumnCountForDate]);
+
+  const colsForDate = useCallback(
+    (d) => dayColCountByDate.get(d) || 1,
+    [dayColCountByDate]
+  );
 
   const showSlotsForDate = useCallback(
     (d) => {
+      const cols = colsForDate(d);
       const list = showsForDate(d);
-      const trimmed = list.slice(0, maxShows);
+      const trimmed = list.slice(0, cols);
       const count = trimmed.length;
-      const slots = Array.from({ length: maxShows }, () => null);
-      const rightStart = Math.max(0, maxShows - count);
+      const slots = Array.from({ length: cols }, () => null);
+      const rightStart = Math.max(0, cols - count);
       for (let i = 0; i < count; i += 1) {
         slots[rightStart + i] = { kind: "show", show: trimmed[i] };
       }
-      if (count < maxShows) {
+      if (count < cols) {
         const addIndex = Math.max(0, rightStart - 1);
         slots[addIndex] = { kind: "add" };
       }
       return slots;
     },
-    [showsForDate, maxShows]
+    [showsForDate, colsForDate]
   );
 
   const parseTimeInput = (value) => {
@@ -308,30 +331,76 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
     return () => window.removeEventListener("mouseup", endDrag);
   }, []);
 
+  useEffect(() => {
+    const computeStickyOffset = () => {
+      const topBar = document.querySelector('[data-app-topbar="true"]');
+      const rect = topBar?.getBoundingClientRect?.();
+      if (rect && Number.isFinite(rect.bottom)) {
+        const next = Math.round(Math.max(0, rect.bottom) + 8);
+        setStickyOffset((prev) => (Math.abs(prev - next) > 1 ? next : prev));
+        return;
+      }
+      setStickyOffset(112);
+    };
+
+    computeStickyOffset();
+    window.addEventListener("resize", computeStickyOffset);
+    window.addEventListener("scroll", computeStickyOffset, { passive: true });
+    return () => {
+      window.removeEventListener("resize", computeStickyOffset);
+      window.removeEventListener("scroll", computeStickyOffset);
+    };
+  }, []);
+
   /** ---------- styles ---------- */
 
-  const panel = {
-    borderRadius: 20,
-    border: "1px solid rgba(255,255,255,0.10)",
-    background:
-      "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.03) 100%)",
-    boxShadow: "0 20px 50px rgba(0,0,0,0.35)",
-    padding: 14,
-    marginTop: 12,
-  };
+  const panel = compact
+    ? {
+        borderRadius: 16,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background:
+          "linear-gradient(180deg, rgba(248,250,255,0.06) 0%, rgba(18,22,30,0.35) 100%)",
+        boxShadow: "0 14px 30px rgba(0,0,0,0.28)",
+        padding: 10,
+        marginTop: 10,
+        position: "relative",
+        zIndex: 0,
+        isolation: "isolate",
+      }
+    : {
+        borderRadius: 20,
+        border: "1px solid rgba(255,255,255,0.10)",
+        background:
+          "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.03) 100%)",
+        boxShadow: "0 20px 50px rgba(0,0,0,0.35)",
+        padding: 14,
+        marginTop: 12,
+        position: "relative",
+        zIndex: 0,
+        isolation: "isolate",
+      };
 
-  const leadColWidth = 260;
-  const dayColMin = 120;
-  const totalCols = days.length * maxShows;
+  const leadColWidth = compact ? 210 : 260;
+  const dayColMin = compact ? 92 : 120;
+  const timeRowHeight = compact ? 24 : 28;
+  const assignmentRowHeight = compact ? 34 : 44;
+  const rowBandGap = compact ? 4 : 6;
+  const nameCardSpill = compact ? 6 : 8;
+  const floatingNameHeight =
+    timeRowHeight + rowBandGap + assignmentRowHeight + nameCardSpill;
+  const totalCols = useMemo(
+    () => days.reduce((sum, d) => sum + colsForDate(d), 0),
+    [days, colsForDate]
+  );
+  const colGap = compact ? 4 : 8;
   const gridTemplateColumns = `${leadColWidth}px repeat(${totalCols}, minmax(${dayColMin}px, 1fr))`;
-  const minGridWidth = leadColWidth + totalCols * (dayColMin + 14);
-  const stickyOffset = 105;
+  const minGridWidth = leadColWidth + totalCols * (dayColMin + colGap + 4);
   const headerWrap = {
     position: "sticky",
     top: stickyOffset,
-    zIndex: 4,
-    paddingBottom: 6,
-    background: "rgba(12,14,20,0.8)",
+    zIndex: 5,
+    paddingBottom: compact ? 4 : 6,
+    background: compact ? "rgba(12,14,20,0.72)" : "rgba(12,14,20,0.8)",
     backdropFilter: "blur(8px)",
   };
   const headerOuter = {
@@ -339,14 +408,16 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
   };
   const bodyScroll = {
     overflowX: "auto",
-    paddingBottom: 6,
+    paddingBottom: compact ? 4 : 6,
     overflowY: "visible",
     WebkitOverflowScrolling: "touch",
+    position: "relative",
+    zIndex: 1,
   };
   const gridRow = {
     display: "grid",
     gridTemplateColumns,
-    gap: 8,
+    gap: colGap,
     minWidth: minGridWidth,
   };
 
@@ -366,8 +437,8 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
   }, [syncHeaderScroll, days.length]);
 
   const cellBase = {
-    height: 44,
-    borderRadius: 10,
+    height: assignmentRowHeight,
+    borderRadius: compact ? 8 : 10,
     border: "1px solid rgba(255,255,255,0.08)",
     cursor: savePaused ? "not-allowed" : "pointer",
     transition:
@@ -376,19 +447,19 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
     display: "flex",
     alignItems: "stretch",
     justifyContent: "center",
-    padding: "6px",
+    padding: compact ? "4px" : "6px",
     position: "relative",
   };
 
   const timeCellBase = {
-    height: 28,
-    borderRadius: 10,
+    height: timeRowHeight,
+    borderRadius: compact ? 8 : 10,
     border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.03)",
+    background: compact ? "rgba(255,255,255,0.025)" : "rgba(255,255,255,0.03)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: "0 6px",
+    padding: compact ? "0 4px" : "0 6px",
   };
   const frozenLeadBase = {
     width: leadColWidth,
@@ -401,30 +472,37 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
   const frozenLeadHeaderCell = {
     ...frozenLeadBase,
     position: "relative",
-    zIndex: 7,
-    borderRadius: 12,
+    zIndex: 3,
+    borderRadius: compact ? 10 : 12,
     border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(12,14,20,0.96)",
-    boxShadow: "8px 0 14px rgba(0,0,0,0.22)",
-  };
-  const frozenLeadShiftCell = {
-    ...frozenLeadBase,
-    position: "relative",
-    zIndex: 6,
-    height: 28,
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(20,26,40,0.94)",
+    background: compact ? "rgba(12,14,20,0.92)" : "rgba(12,14,20,0.96)",
     boxShadow: "8px 0 14px rgba(0,0,0,0.22)",
   };
   const frozenNameCell = {
     ...frozenLeadBase,
     position: "relative",
-    zIndex: 6,
-    borderRadius: 12,
+    zIndex: 1,
+    borderRadius: compact ? 10 : 12,
     border: "1px solid rgba(255,255,255,0.08)",
     boxShadow: "8px 0 14px rgba(0,0,0,0.22)",
     backdropFilter: "blur(6px)",
+  };
+  const frozenLeadShiftStub = {
+    ...frozenLeadBase,
+    height: timeRowHeight,
+    pointerEvents: "none",
+  };
+  const floatingNameCard = {
+    ...frozenNameCell,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    height: floatingNameHeight,
+    padding: compact ? "8px 8px" : "12px 12px",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    zIndex: 2,
   };
 
   const trackSelect = {
@@ -432,29 +510,29 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
     height: "100%",
     minWidth: 0,
     width: "100%",
-    borderRadius: 9,
-    padding: "0 26px",
-    fontSize: 12,
+    borderRadius: compact ? 7 : 9,
+    padding: compact ? "0 20px" : "0 26px",
+    fontSize: compact ? 11 : 12,
     fontWeight: 700,
     textAlign: "center",
     textAlignLast: "center",
-    background: "rgba(10,15,25,0.55)",
+    background: compact ? "rgba(10,15,25,0.48)" : "rgba(10,15,25,0.55)",
     border: "1px solid rgba(255,255,255,0.18)",
     boxSizing: "border-box",
   };
   const clearTrackButton = {
     position: "absolute",
-    top: 3,
-    right: 3,
-    width: 14,
-    height: 14,
+    top: compact ? 2 : 3,
+    right: compact ? 2 : 3,
+    width: compact ? 12 : 14,
+    height: compact ? 12 : 14,
     borderRadius: 999,
     border: "1px solid rgba(255,255,255,0.35)",
     background: "rgba(8,12,20,0.82)",
     color: "rgba(255,255,255,0.9)",
-    fontSize: 10,
+    fontSize: compact ? 9 : 10,
     fontWeight: 900,
-    lineHeight: "14px",
+    lineHeight: compact ? "12px" : "14px",
     padding: 0,
     display: "grid",
     placeItems: "center",
@@ -487,7 +565,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
       {/* Sticky Header (synced to body scroll) */}
       <div style={headerWrap}>
         <div style={headerOuter}>
-          <div ref={headerRowRef} style={{ display: "grid", gap: 8 }}>
+          <div ref={headerRowRef} style={{ display: "grid", gap: colGap }}>
             <div style={gridRow}>
               <div style={frozenLeadHeaderCell} data-freeze-left="1" />
             {days.map((d) => {
@@ -500,14 +578,20 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                   onMouseEnter={() => setHoverDate(d)}
                   onMouseLeave={() => setHoverDate(null)}
                   style={{
-                    gridColumn: `span ${maxShows}`,
-                    borderRadius: 14,
-                    padding: "10px",
+                    gridColumn: `span ${colsForDate(d)}`,
+                    borderRadius: compact ? 10 : 14,
+                    padding: compact ? "6px 8px" : "10px",
                     textAlign: "center",
                     background: isToday
-                      ? "linear-gradient(180deg, rgba(0,122,255,0.28) 0%, rgba(0,122,255,0.10) 100%)"
+                      ? compact
+                        ? "linear-gradient(180deg, rgba(0,122,255,0.24) 0%, rgba(0,122,255,0.08) 100%)"
+                        : "linear-gradient(180deg, rgba(0,122,255,0.28) 0%, rgba(0,122,255,0.10) 100%)"
                       : hoverDate === d
-                      ? "rgba(255,255,255,0.08)"
+                      ? compact
+                        ? "rgba(255,255,255,0.06)"
+                        : "rgba(255,255,255,0.08)"
+                      : compact
+                      ? "rgba(255,255,255,0.02)"
                       : "rgba(255,255,255,0.03)",
                     border: isToday
                       ? "1px solid rgba(0,122,255,0.45)"
@@ -516,10 +600,10 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                     position: "relative",
                   }}
                 >
-                  <div style={{ fontSize: 13, fontWeight: 900 }}>
+                  <div style={{ fontSize: compact ? 11 : 13, fontWeight: 900 }}>
                     {formatWeekdayShort(d)}
                   </div>
-                  <div style={{ fontSize: 12, opacity: 0.6 }}>
+                  <div style={{ fontSize: compact ? 10 : 12, opacity: 0.6 }}>
                     {formatMonthDay(d)}
                   </div>
                   {canAddShow ? (
@@ -531,17 +615,17 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                       }}
                       style={{
                         position: "absolute",
-                        top: 6,
-                        right: 8,
-                        width: 18,
-                        height: 18,
+                        top: compact ? 3 : 6,
+                        right: compact ? 4 : 8,
+                        width: compact ? 14 : 18,
+                        height: compact ? 14 : 18,
                         borderRadius: 999,
                         border: "1px solid rgba(255,255,255,0.18)",
                         background: "rgba(255,255,255,0.06)",
                         color: "rgba(255,255,255,0.85)",
-                        fontSize: 12,
+                        fontSize: compact ? 10 : 12,
                         fontWeight: 900,
-                        lineHeight: "16px",
+                        lineHeight: compact ? "12px" : "16px",
                         cursor: "pointer",
                         display: "inline-flex",
                         alignItems: "center",
@@ -574,11 +658,15 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                       onMouseEnter={() => setHoverDate(d)}
                       onMouseLeave={() => setHoverDate(null)}
                       style={{
-                        borderRadius: 12,
-                        padding: "8px 6px",
+                        borderRadius: compact ? 8 : 12,
+                        padding: compact ? "5px 4px" : "8px 6px",
                         textAlign: "center",
                         background: isShow
-                          ? "rgba(255,255,255,0.06)"
+                          ? compact
+                            ? "rgba(255,255,255,0.05)"
+                            : "rgba(255,255,255,0.06)"
+                          : compact
+                          ? "rgba(255,255,255,0.015)"
                           : "rgba(255,255,255,0.02)",
                         border: isShow
                           ? "1px solid rgba(255,255,255,0.14)"
@@ -586,13 +674,13 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                         color: isShow
                           ? "rgba(255,255,255,0.85)"
                           : "rgba(255,255,255,0.45)",
-                        fontSize: 12,
+                        fontSize: compact ? 10 : 12,
                         fontWeight: 700,
                         cursor: isAdd ? "pointer" : isShow ? "pointer" : "default",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        gap: 6,
+                        gap: compact ? 4 : 6,
                       }}
                       onClick={() => {
                         if (isShow) {
@@ -611,12 +699,12 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                             handleDeleteShow(d, show);
                           }}
                           style={{
-                            marginLeft: 4,
+                            marginLeft: compact ? 2 : 4,
                             border: "none",
                             background: "transparent",
                             color: "rgba(255,255,255,0.5)",
                             cursor: "pointer",
-                            fontSize: 12,
+                            fontSize: compact ? 10 : 12,
                             fontWeight: 700,
                           }}
                           title="Delete show"
@@ -645,20 +733,21 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
           grouped.map(({ dept, people }) => {
             const open = expanded.has(dept);
             return (
-              <div key={dept} style={{ marginTop: 10 }}>
+              <div key={dept} style={{ marginTop: compact ? 6 : 10 }}>
                 <button
                   onClick={() => toggleDept(dept)}
                   style={{
                     width: "100%",
-                    borderRadius: 14,
-                    padding: "10px 12px",
+                    borderRadius: compact ? 10 : 14,
+                    padding: compact ? "7px 10px" : "10px 12px",
                     border: "1px solid rgba(255,255,255,0.10)",
-                    background: "rgba(255,255,255,0.04)",
+                    background: compact ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.04)",
                     display: "flex",
                     alignItems: "center",
-                    gap: 10,
+                    gap: compact ? 8 : 10,
                     cursor: "pointer",
                     fontWeight: 800,
+                    fontSize: compact ? 12 : 14,
                     color: "rgba(255,255,255,0.88)",
                   }}
                 >
@@ -670,12 +759,19 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                 </button>
 
                 {open &&
-                  people.map((c) => {
+                  people.map((c, personIdx) => {
                     const rowHover = hoverCrewId === c.id;
                     return (
-                      <div key={c.id} style={{ marginTop: 8 }}>
-                        <div style={{ ...gridRow, marginBottom: 6 }}>
-                          <div style={frozenLeadShiftCell} data-freeze-left="1" />
+                      <div
+                        key={c.id}
+                        style={{
+                          marginTop:
+                            personIdx === 0 ? (compact ? 5 : 8) : rowBandGap,
+                          position: "relative",
+                        }}
+                      >
+                        <div style={{ ...gridRow, marginBottom: rowBandGap }}>
+                          <div style={frozenLeadShiftStub} data-freeze-left="1" />
                           {days.map((d) => {
                             const shift = getShift(d, c.id) || {};
                             const slots = showSlotsForDate(d);
@@ -690,7 +786,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                                 key={`${c.id}-${d}-time`}
                                 style={{
                                   ...timeCellBase,
-                                  gridColumn: `span ${maxShows}`,
+                                  gridColumn: `span ${colsForDate(d)}`,
                                   background: isAnyWorking
                                     ? "rgba(255,255,255,0.05)"
                                     : "rgba(255,255,255,0.02)",
@@ -704,7 +800,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                                     style={{
                                       display: "grid",
                                       gridTemplateColumns: "1fr 1fr",
-                                      gap: 6,
+                                      gap: compact ? 4 : 6,
                                       width: "100%",
                                     }}
                                   >
@@ -717,7 +813,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                                     >
                                       <span
                                         style={{
-                                          fontSize: 10,
+                                          fontSize: compact ? 9 : 10,
                                           fontWeight: 800,
                                           opacity: 0.75,
                                         }}
@@ -742,10 +838,10 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                                         }
                                         style={{
                                           ...S.select,
-                                          height: 24,
-                                          fontSize: 10,
-                                          padding: "2px 6px",
-                                          minWidth: 86,
+                                          height: compact ? 20 : 24,
+                                          fontSize: compact ? 9 : 10,
+                                          padding: compact ? "1px 4px" : "2px 6px",
+                                          minWidth: compact ? 72 : 86,
                                         }}
                                         disabled={savePaused}
                                       >
@@ -767,7 +863,7 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                                     >
                                       <span
                                         style={{
-                                          fontSize: 10,
+                                          fontSize: compact ? 9 : 10,
                                           fontWeight: 800,
                                           opacity: 0.75,
                                         }}
@@ -792,10 +888,10 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                                         }
                                         style={{
                                           ...S.select,
-                                          height: 24,
-                                          fontSize: 10,
-                                          padding: "2px 6px",
-                                          minWidth: 86,
+                                          height: compact ? 20 : 24,
+                                          fontSize: compact ? 9 : 10,
+                                          padding: compact ? "1px 4px" : "2px 6px",
+                                          minWidth: compact ? 72 : 86,
                                         }}
                                         disabled={savePaused}
                                       >
@@ -814,164 +910,186 @@ export default function CrewSchedulesGrid({ S, roster, search, tracks = [] }) {
                           })}
                         </div>
 
+                        <div
+                          onMouseEnter={() => setHoverCrewId(c.id)}
+                          onMouseLeave={() => setHoverCrewId(null)}
+                          style={{
+                            ...floatingNameCard,
+                            background: rowHover
+                              ? "rgba(30,36,52,0.98)"
+                              : "rgba(22,28,44,0.96)",
+                          }}
+                          data-freeze-left="1"
+                        >
+                          <div style={{ fontWeight: 900, fontSize: compact ? 12 : 14 }}>
+                            {c.crew_name}
+                          </div>
+                          <div style={{ fontSize: compact ? 10 : 12, opacity: 0.6 }}>
+                            {prettyDept(c.home_department)}
+                          </div>
+                        </div>
+
                         <div style={gridRow}>
                           <div
-                            onMouseEnter={() => setHoverCrewId(c.id)}
-                            onMouseLeave={() => setHoverCrewId(null)}
                             style={{
-                              ...frozenNameCell,
-                              padding: "10px 12px",
-                              background: rowHover
-                                ? "rgba(30,36,52,0.98)"
-                                : "rgba(22,28,44,0.96)",
+                              gridColumn: "2 / -1",
+                              display: "grid",
+                              gridTemplateColumns: `repeat(${totalCols}, minmax(${dayColMin}px, 1fr))`,
+                              gap: colGap,
                             }}
-                            data-freeze-left="1"
                           >
-                            <div style={{ fontWeight: 900 }}>
-                              {c.crew_name}
-                            </div>
-                            <div style={{ fontSize: 12, opacity: 0.6 }}>
-                              {prettyDept(c.home_department)}
-                            </div>
-                          </div>
+                            {days.flatMap((d) => {
+                              const slots = showSlotsForDate(d);
+                              const showCountForDay = showsForDate(d).length;
+                              return slots.map((slot, idx) => {
+                                const canUse = slot?.kind === "show";
+                                const showId = slot?.show?.id ?? null;
+                                const hideGhostForSingleShow =
+                                  !canUse &&
+                                  colsForDate(d) === 2 &&
+                                  showCountForDay === 1;
+                                const working = canUse
+                                  ? isWorking(d, c.id, showId)
+                                  : false;
+                                const trackId = canUse
+                                  ? getTrackId(d, c.id, showId)
+                                  : null;
+                                const trackLabel =
+                                  trackId != null && Number.isFinite(trackId)
+                                    ? trackNameById.get(Number(trackId)) || ""
+                                    : "";
+                                const trackHex =
+                                  trackId != null && Number.isFinite(trackId)
+                                    ? trackColorById.get(Number(trackId)) || ""
+                                    : "";
+                                const trackGlow = trackGlowFromHex(trackHex);
+                                const hover = rowHover || hoverDate === d;
 
-                          {days.flatMap((d) => {
-                            const slots = showSlotsForDate(d);
-                            return slots.map((slot, idx) => {
-                              const canUse = slot?.kind === "show";
-                              const showId = slot?.show?.id ?? null;
-                              const working = canUse
-                                ? isWorking(d, c.id, showId)
-                                : false;
-                              const trackId = canUse
-                                ? getTrackId(d, c.id, showId)
-                                : null;
-                              const trackLabel =
-                                trackId != null && Number.isFinite(trackId)
-                                  ? trackNameById.get(Number(trackId)) || ""
-                                  : "";
-                              const trackHex =
-                                trackId != null && Number.isFinite(trackId)
-                                  ? trackColorById.get(Number(trackId)) || ""
-                                  : "";
-                              const trackGlow = trackGlowFromHex(trackHex);
-                              const hover = rowHover || hoverDate === d;
-
-                              return (
-                                <div
-                                  key={`${c.id}-${d}-${showId ?? idx}`}
-                                  onMouseDown={() =>
-                                    canUse ? beginDrag(d, c.id, showId) : null
-                                  }
-                                  onMouseEnter={() => {
-                                    setHoverCrewId(c.id);
-                                    setHoverDate(d);
-                                    if (canUse) dragOver(d, c.id, showId);
-                                  }}
-                                  style={{
-                                    ...cellBase,
-                                    padding: working ? 0 : cellBase.padding,
-                                    background: !canUse
-                                      ? "rgba(255,255,255,0.015)"
-                                      : working
-                                      ? trackGlow
-                                        ? `linear-gradient(180deg, ${trackGlow.bg} 0%, rgba(255,255,255,0.02) 100%)`
-                                        : "linear-gradient(180deg, rgba(90,150,255,0.32) 0%, rgba(90,150,255,0.16) 100%)"
-                                      : hover
-                                      ? "rgba(255,255,255,0.05)"
-                                      : "rgba(255,255,255,0.02)",
-                                    border: !canUse
-                                      ? "1px dashed rgba(255,255,255,0.06)"
-                                      : working
-                                      ? trackGlow
-                                        ? `1px solid ${trackGlow.border}`
-                                        : "1px solid rgba(90,150,255,0.40)"
-                                      : "1px solid rgba(255,255,255,0.08)",
-                                    boxShadow: trackGlow
-                                      ? `0 0 0 1px ${trackGlow.inset} inset, 0 8px 20px ${trackGlow.shadow}`
-                                      : hover
-                                      ? "0 6px 16px rgba(0,0,0,0.25)"
-                                      : "none",
-                                    transform: hover ? "translateY(-1px)" : "none",
-                                    opacity: savePaused ? 0.6 : 1,
-                                    cursor: !canUse
-                                      ? "default"
-                                      : savePaused
-                                      ? "not-allowed"
-                                      : "pointer",
-                                  }}
-                                >
-                                  {working ? (
-                                    <>
-                                      <select
-                                        value={
-                                          trackId != null &&
-                                          Number.isFinite(trackId)
-                                            ? String(trackId)
-                                            : ""
-                                        }
-                                        onChange={(e) =>
-                                          setTrackFor(
-                                            d,
-                                            c.id,
-                                            showId,
-                                            e.target.value
-                                          )
-                                        }
-                                        onMouseDown={(e) => e.stopPropagation()}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onMouseEnter={(e) => e.stopPropagation()}
-                                        disabled={savePaused || !canUse}
-                                        title={trackLabel || "No track"}
-                                        style={
-                                          trackGlow
-                                            ? {
-                                                ...trackSelect,
-                                                border: `1px solid ${trackGlow.border}`,
-                                                boxShadow: `0 0 0 1px ${trackGlow.inset} inset, 0 6px 14px ${trackGlow.shadow}`,
-                                                background:
-                                                  "rgba(12,16,26,0.72)",
-                                              }
-                                            : trackSelect
-                                        }
-                                      >
-                                        <option value="">No track</option>
-                                        {trackOptions.map((t) => (
-                                          <option key={t.id} value={t.id}>
-                                            {t.name}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      {canUse ? (
-                                        <button
-                                          type="button"
+                                return (
+                                  <div
+                                    key={`${c.id}-${d}-${showId ?? idx}`}
+                                    onMouseDown={() =>
+                                      canUse ? beginDrag(d, c.id, showId) : null
+                                    }
+                                    onMouseEnter={() => {
+                                      setHoverCrewId(c.id);
+                                      setHoverDate(d);
+                                      if (canUse) dragOver(d, c.id, showId);
+                                    }}
+                                    style={{
+                                      ...cellBase,
+                                      padding: working ? 0 : cellBase.padding,
+                                      background: !canUse
+                                        ? "rgba(255,255,255,0.015)"
+                                        : working
+                                        ? trackGlow
+                                          ? `linear-gradient(180deg, ${trackGlow.bg} 0%, rgba(255,255,255,0.02) 100%)`
+                                          : "linear-gradient(180deg, rgba(90,150,255,0.32) 0%, rgba(90,150,255,0.16) 100%)"
+                                        : hover
+                                        ? "rgba(255,255,255,0.05)"
+                                        : "rgba(255,255,255,0.02)",
+                                      border: !canUse
+                                        ? "1px dashed rgba(255,255,255,0.06)"
+                                        : working
+                                        ? trackGlow
+                                          ? `1px solid ${trackGlow.border}`
+                                          : "1px solid rgba(90,150,255,0.40)"
+                                        : "1px solid rgba(255,255,255,0.08)",
+                                      boxShadow: trackGlow
+                                        ? `0 0 0 1px ${trackGlow.inset} inset, 0 8px 20px ${trackGlow.shadow}`
+                                        : hover
+                                        ? "0 6px 16px rgba(0,0,0,0.25)"
+                                        : "none",
+                                      transform: compact
+                                        ? "none"
+                                        : hover
+                                        ? "translateY(-1px)"
+                                        : "none",
+                                      opacity: savePaused ? 0.6 : 1,
+                                      cursor: !canUse
+                                        ? "default"
+                                        : savePaused
+                                        ? "not-allowed"
+                                        : "pointer",
+                                      visibility: hideGhostForSingleShow
+                                        ? "hidden"
+                                        : "visible",
+                                    }}
+                                  >
+                                    {working ? (
+                                      <>
+                                        <select
+                                          value={
+                                            trackId != null &&
+                                            Number.isFinite(trackId)
+                                              ? String(trackId)
+                                              : ""
+                                          }
+                                          onChange={(e) =>
+                                            setTrackFor(
+                                              d,
+                                              c.id,
+                                              showId,
+                                              e.target.value
+                                            )
+                                          }
                                           onMouseDown={(e) => e.stopPropagation()}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setWorkingFor(d, c.id, showId, false);
-                                          }}
+                                          onClick={(e) => e.stopPropagation()}
+                                          onMouseEnter={(e) => e.stopPropagation()}
                                           disabled={savePaused || !canUse}
-                                          title="Remove assignment"
-                                          aria-label="Remove assignment"
-                                          style={{
-                                            ...clearTrackButton,
-                                            cursor:
-                                              savePaused || !canUse
-                                                ? "not-allowed"
-                                                : "pointer",
-                                            opacity:
-                                              savePaused || !canUse ? 0.55 : 1,
-                                          }}
+                                          title={trackLabel || "No track"}
+                                          style={
+                                            trackGlow
+                                              ? {
+                                                  ...trackSelect,
+                                                  border: `1px solid ${trackGlow.border}`,
+                                                  boxShadow: compact
+                                                    ? `0 0 0 1px ${trackGlow.inset} inset`
+                                                    : `0 0 0 1px ${trackGlow.inset} inset, 0 6px 14px ${trackGlow.shadow}`,
+                                                  background:
+                                                    "rgba(12,16,26,0.72)",
+                                                }
+                                              : trackSelect
+                                          }
                                         >
-                                          x
-                                        </button>
-                                      ) : null}
-                                    </>
-                                  ) : null}
-                                </div>
-                              );
-                            });
-                          })}
+                                          <option value="">No track</option>
+                                          {trackOptions.map((t) => (
+                                            <option key={t.id} value={t.id}>
+                                              {t.name}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        {canUse ? (
+                                          <button
+                                            type="button"
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setWorkingFor(d, c.id, showId, false);
+                                            }}
+                                            disabled={savePaused || !canUse}
+                                            title="Remove assignment"
+                                            aria-label="Remove assignment"
+                                            style={{
+                                              ...clearTrackButton,
+                                              cursor:
+                                                savePaused || !canUse
+                                                  ? "not-allowed"
+                                                  : "pointer",
+                                              opacity:
+                                                savePaused || !canUse ? 0.55 : 1,
+                                            }}
+                                          >
+                                            x
+                                          </button>
+                                        ) : null}
+                                      </>
+                                    ) : null}
+                                  </div>
+                                );
+                              });
+                            })}
+                          </div>
                         </div>
                       </div>
                     );

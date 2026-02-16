@@ -12,7 +12,7 @@ export function createStyles() {
     topBar: {
       position: "sticky",
       top: 0,
-      zIndex: 5,
+      zIndex: 40,
       padding: "18px 0 14px 0",
       backdropFilter: "blur(14px)",
       background:

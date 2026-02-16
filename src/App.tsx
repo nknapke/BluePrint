@@ -1746,6 +1746,14 @@ export default function App() {
   const historySubtitle = `${historyContext?.crewName || ""} · ${
     historyContext?.trackName || ""
   }`;
+  const isCrewSchedulesTab = activeTab === "crewSchedules";
+  const shellStyle = isCrewSchedulesTab
+    ? {
+        ...S.shell,
+        maxWidth: "min(1860px, calc(100vw - 16px))",
+        padding: "14px 14px 22px",
+      }
+    : S.shell;
 
   return (
     <div style={S.page}>
@@ -1812,7 +1820,7 @@ export default function App() {
         deleteHistoryRow={deleteHistoryRow}
       />
 
-      <div style={S.shell}>
+      <div style={shellStyle}>
         <AppHeader
           S={S}
           blueprintIcon={blueprintIcon}
@@ -1826,6 +1834,7 @@ export default function App() {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           tabLabel={tabLabel}
+          wide={isCrewSchedulesTab}
         />
 
         <div style={S.contentGrid}>
