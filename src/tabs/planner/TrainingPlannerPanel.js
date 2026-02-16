@@ -33,6 +33,16 @@ function formatPrintDate(dateISO) {
   });
 }
 
+function parseISODateToTime(dateISO) {
+  if (!dateISO) return null;
+  const t = new Date(`${dateISO}T00:00:00`).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+function isTruthyFlag(value) {
+  return value === true || value === "true" || value === "t" || value === 1;
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -652,7 +662,7 @@ export default function TrainingPlannerPanel({
 
       if (dayIds.length) {
         const rows = await supabaseGet(
-          `/rest/v1/v_plan_day_attendee_review?select=day_id,crew_name,track_name,track_id,included,is_working,is_out_of_date,no_prior_training,is_extreme_overdue&day_id=in.(${dayIds.join(
+          `/rest/v1/v_plan_day_attendee_review?select=day_id,crew_name,track_name,track_id,included,is_working,is_out_of_date,no_prior_training,is_extreme_overdue,simulated_last_completed,actual_last_completed&day_id=in.(${dayIds.join(
             ","
           )})&order=crew_name.asc`,
           { bypassCache: true }
@@ -723,8 +733,16 @@ export default function TrainingPlannerPanel({
             ? crewList
                 .map((r) => {
                   const track = r.track_name || r.track_id || "No track";
+                  const hasUrgencyFlag =
+                    isTruthyFlag(r.is_out_of_date) ||
+                    isTruthyFlag(r.no_prior_training) ||
+                    isTruthyFlag(r.is_extreme_overdue);
+                  const simulatedTime = parseISODateToTime(r.simulated_last_completed);
+                  const actualTime = parseISODateToTime(r.actual_last_completed);
                   const needsUpdate =
-                    r.is_out_of_date || r.no_prior_training || r.is_extreme_overdue;
+                    hasUrgencyFlag ||
+                    (simulatedTime !== null &&
+                      (actualTime === null || simulatedTime > actualTime));
                   const lineText = `${escapeHtml(
                     r.crew_name || "Unknown"
                   )} — ${escapeHtml(String(track).toUpperCase())}`;
@@ -836,18 +854,26 @@ export default function TrainingPlannerPanel({
       .group-list li { margin-bottom: 4px; }
       .crew-line { margin-bottom: 4px; }
       .crew-need {
-        background: rgba(255, 210, 120, 0.12);
-        border: 1px solid rgba(255, 210, 120, 0.25);
+        background: #ffe2bb;
+        border: 1px solid #cc6f00;
         border-radius: 6px;
         padding: 2px 6px;
         display: inline-block;
+        color: #7a2f00;
+        font-weight: 700;
       }
       .crew-none { color: #777; font-style: italic; }
       .reason-title { font-weight: 700; margin-bottom: 6px; }
       .reason-line { margin-bottom: 4px; }
       .reason-sub { margin-left: 16px; }
       .reason-none { color: #777; font-style: italic; }
-      @media print { body { padding: 0; } }
+      @media print {
+        body {
+          padding: 0;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+      }
     </style>
   </head>
   <body>
