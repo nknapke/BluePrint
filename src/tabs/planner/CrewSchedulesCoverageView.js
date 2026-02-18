@@ -1,6 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef } from "react";
 
-import { Segmented } from "../../components/ui/Segmented";
 import { normalizeHex } from "../../utils/colors";
 import { formatLongDate } from "../../utils/dates";
 import { prettyDept } from "../../utils/strings";
@@ -36,7 +35,7 @@ export default function CrewSchedulesCoverageView({
   search,
   tracks = [],
 }) {
-  const [layoutMode, setLayoutMode] = useState("list"); // list | grid
+  const layoutMode = "grid";
   const gridScrollRef = useRef(null);
   const gridFrameRef = useRef(null);
   const savePaused = !!roster?.savePaused;
@@ -541,6 +540,22 @@ export default function CrewSchedulesCoverageView({
 
   return (
     <div style={{ marginTop: 12, width: "100%", maxWidth: "100%", minWidth: 0 }}>
+      <style>{`
+        @keyframes coverageTrackGapPulse {
+          0%, 100% {
+            box-shadow:
+              10px 0 18px rgba(0,0,0,0.22),
+              0 0 0 1px rgba(255,99,99,0.35),
+              0 0 10px rgba(255,99,99,0.28);
+          }
+          50% {
+            box-shadow:
+              10px 0 18px rgba(0,0,0,0.22),
+              0 0 0 1px rgba(255,99,99,0.62),
+              0 0 20px rgba(255,99,99,0.55);
+          }
+        }
+      `}</style>
       <div style={panel}>
         <div
           style={{
@@ -554,24 +569,11 @@ export default function CrewSchedulesCoverageView({
         >
           <div style={{ fontSize: 16, fontWeight: 800 }}>Show Coverage</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <Segmented
-              value={layoutMode}
-              onChange={setLayoutMode}
-              options={[
-                { value: "list", label: "List" },
-                { value: "grid", label: "Grid" },
-              ]}
-            />
             {q ? (
               <span style={S.badge("info")}>
                 Filtered to {filteredCrew.length} crew
               </span>
             ) : null}
-            <span style={S.badge(usingCriticalTracks ? "good" : "info")}>
-              {requiredTrackOptions.length}{" "}
-              {usingCriticalTracks ? "show-critical" : "required"} track
-              {requiredTrackOptions.length === 1 ? "" : "s"}
-            </span>
           </div>
         </div>
 
@@ -674,19 +676,34 @@ export default function CrewSchedulesCoverageView({
                         trackRow.trackColor ||
                         (trackRow.isFallback ? "#9ec2ff" : "#8fd4ff");
                       const requiredRow = trackRow.isRequired !== false;
+                      const uncoveredShowsForTrack = requiredRow
+                        ? weekShowColumns.reduce((count, showItem) => {
+                            const crewInCell =
+                              showItem.trackCrewById.get(trackRow.trackId) || EMPTY_ARRAY;
+                            return count + (crewInCell.length === 0 ? 1 : 0);
+                          }, 0)
+                        : 0;
+                      const shouldPulseGap = uncoveredShowsForTrack > 0;
                       return (
                         <Fragment key={`week-track-row-${trackRow.trackId}`}>
                           <div
                             style={{
                               ...stickyLeftRowCell,
                               borderRadius: 10,
-                              border: "1px solid rgba(255,255,255,0.10)",
-                              background: "rgba(18,22,32,0.95)",
+                              border: shouldPulseGap
+                                ? "1px solid rgba(255,99,99,0.52)"
+                                : "1px solid rgba(255,255,255,0.10)",
+                              background: shouldPulseGap
+                                ? "rgba(60,18,22,0.50)"
+                                : "rgba(18,22,32,0.95)",
                               padding: "8px 10px",
                               display: "flex",
                               alignItems: "center",
                               gap: 8,
                               minWidth: 0,
+                              animation: shouldPulseGap
+                                ? "coverageTrackGapPulse 1.6s ease-in-out infinite"
+                                : "none",
                             }}
                           >
                             <span
