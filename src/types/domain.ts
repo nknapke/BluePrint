@@ -24,6 +24,7 @@ export type Track = {
   localId: number | null;
   name: string;
   active: boolean;
+  showCritical: boolean;
   color: string;
 };
 

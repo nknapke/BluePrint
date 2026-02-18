@@ -5,6 +5,7 @@ import { Segmented } from "../components/ui/Segmented";
 import useRosterData from "./planner/useRosterData";
 import CrewSchedulesGrid from "./planner/CrewSchedulesGrid";
 import CrewSchedulesDayView from "./planner/CrewSchedulesDayView";
+import CrewSchedulesCoverageView from "./planner/CrewSchedulesCoverageView";
 import MasterScheduleImportModal from "./planner/MasterScheduleImportModal";
 import { isoDate } from "../utils/dates";
 
@@ -215,6 +216,7 @@ export default function CrewSchedulesTab({
               options={[
                 { value: "grid", label: "Week grid" },
                 { value: "day", label: "Single day" },
+                { value: "coverage", label: "Show coverage" },
               ]}
             />
 
@@ -337,6 +339,13 @@ export default function CrewSchedulesTab({
           search={crewSearch}
           tracks={tracks}
           displayMode="compact"
+        />
+      ) : crewViewMode === "coverage" ? (
+        <CrewSchedulesCoverageView
+          S={S}
+          roster={roster}
+          search={crewSearch}
+          tracks={tracks}
         />
       ) : (
         <CrewSchedulesDayView

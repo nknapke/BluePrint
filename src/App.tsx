@@ -1313,6 +1313,7 @@ export default function App() {
         location_id: activeLocationId,
         track_name: name,
         is_track_active,
+        is_show_critical: false,
       });
 
       invalidateMany([
@@ -1457,6 +1458,38 @@ export default function App() {
       setTracks((prev) =>
         prev.map((t) =>
           t.id === trackRow.id ? { ...t, active: trackRow.active } : t
+        )
+      );
+    }
+  }
+
+  async function toggleTrackShowCritical(trackRow: Track) {
+    const nextShowCritical = !trackRow.showCritical;
+
+    setTracks((prev) =>
+      prev.map((t) =>
+        t.id === trackRow.id ? { ...t, showCritical: nextShowCritical } : t
+      )
+    );
+
+    try {
+      await supabasePatch(`/rest/v1/track_definitions?id=eq.${trackRow.id}`, {
+        is_show_critical: nextShowCritical,
+      });
+
+      invalidateMany([
+        "/rest/v1/track_definitions",
+        "/rest/v1/track_training_requirements",
+        "/rest/v1/crew_training_records",
+        "/rest/v1/v_training_dashboard_with_signer",
+      ]);
+
+      await loadTracks(true);
+    } catch (e) {
+      alert("Failed to update show critical flag:\n" + getErrorMessage(e));
+      setTracks((prev) =>
+        prev.map((t) =>
+          t.id === trackRow.id ? { ...t, showCritical: trackRow.showCritical } : t
         )
       );
     }
@@ -1893,6 +1926,7 @@ export default function App() {
               saveEditTrack={saveEditTrack}
               deleteTrackDefinition={deleteTrackDefinition}
               toggleTrackActive={toggleTrackActive}
+              toggleTrackShowCritical={toggleTrackShowCritical}
               updateTrackColor={updateTrackColor}
             />
           )}

@@ -597,6 +597,16 @@ export default function useRosterData({
     [getAssignment, setAssignmentFor]
   );
 
+  const assignCrewToTrack = useCallback(
+    (dateISO, crewId, showId, nextTrackId) => {
+      setAssignmentFor(dateISO, crewId, showId, {
+        isWorking: true,
+        trackId: nextTrackId,
+      });
+    },
+    [setAssignmentFor]
+  );
+
   const toggleCell = useCallback(
     (dateISO, crewId, showId) => {
       if (savePaused) return;
@@ -799,6 +809,7 @@ export default function useRosterData({
     toggleCell,
     setWorkingFor,
     setTrackFor,
+    assignCrewToTrack,
     clearDay,
     copyPreviousWeek,
     shiftWeek,

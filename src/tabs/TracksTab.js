@@ -180,7 +180,7 @@ function TrackRowCard({
           style={{
             display: "grid",
             gridTemplateColumns: isEditing
-              ? "minmax(240px, 1fr) auto auto"
+              ? "minmax(240px, 1fr) auto auto auto"
               : "1fr",
             alignItems: "end",
             gap: 12,
@@ -200,14 +200,29 @@ function TrackRowCard({
                 />
               </>
             ) : (
-              <div
-                style={{
-                  fontSize: 14,
-                  fontWeight: 900,
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                {t.name}
+              <div style={{ display: "grid", gap: t.showCritical ? 4 : 0 }}>
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 900,
+                    letterSpacing: "-0.01em",
+                  }}
+                >
+                  {t.name}
+                </div>
+                {t.showCritical ? (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      letterSpacing: "0.02em",
+                      textTransform: "uppercase",
+                      color: "rgba(255,255,255,0.7)",
+                    }}
+                  >
+                    Show Critical
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -244,6 +259,23 @@ function TrackRowCard({
                 <option value="TRUE">Active</option>
                 <option value="FALSE">Inactive</option>
               </select>
+            </div>
+          )}
+
+          {isEditing && (
+            <div style={{ display: "grid", alignContent: "end" }}>
+              <FieldLabel>Show Coverage</FieldLabel>
+              <button
+                type="button"
+                onClick={() => actions.toggleTrackShowCritical?.(t)}
+                disabled={edit.editTrackSaving}
+                style={S.button(
+                  t.showCritical ? "primary" : "ghost",
+                  edit.editTrackSaving
+                )}
+              >
+                {t.showCritical ? "Show Critical: On" : "Show Critical: Off"}
+              </button>
             </div>
           )}
         </div>
@@ -337,6 +369,7 @@ export default function TracksTab({
   saveEditTrack,
   deleteTrackDefinition,
   toggleTrackActive,
+  toggleTrackShowCritical,
 
   // passed from App.js
   updateTrackColor,
@@ -352,7 +385,7 @@ export default function TracksTab({
     return list.filter((t) => {
       const hay = `${t.localId ?? ""} ${t.id} ${t.name || ""} ${
         t.active ? "active" : "inactive"
-      }`.toLowerCase();
+      } ${t.showCritical ? "show critical required" : "optional noncritical"}`.toLowerCase();
       return hay.includes(query);
     });
   }, [tracks, q]);
@@ -426,6 +459,7 @@ export default function TracksTab({
     saveEditTrack,
     deleteTrackDefinition,
     toggleTrackActive,
+    toggleTrackShowCritical,
   };
 
   const activeCount = counts.active;

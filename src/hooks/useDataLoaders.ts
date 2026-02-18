@@ -107,6 +107,7 @@ type TrackRow = {
   local_id: number | null;
   track_name: string;
   is_track_active?: boolean | null;
+  is_show_critical?: boolean | null;
   track_color?: string | null;
   location_id?: number;
 };
@@ -397,24 +398,72 @@ export function useDataLoaders({
 
   const loadTracks = useCallback(
     async (force = false, opts: LoadOptions = {}) => {
-      await loadList({
-        key: "trackDefs",
-        force,
-        setLoading: setTracksLoading,
-        setError: setTracksError,
-        path: "/rest/v1/track_definitions?select=id,local_id,track_name,is_track_active,track_color,location_id&order=local_id.asc",
-        mapRow: (t: TrackRow): Track => ({
-          id: t.id,
-          localId: t.local_id,
-          name: t.track_name,
-          active: !!t.is_track_active,
-          color: (t.track_color || "").trim(),
-        }),
-        setRows: setTracks,
-        silent: opts.silent,
-      });
+      if (!force && !shouldFetch("trackDefs")) return;
+
+      if (!opts.silent) {
+        safeSet(() => {
+          setTracksLoading(true);
+          setTracksError("");
+        });
+      }
+
+      const withCriticalPath =
+        "/rest/v1/track_definitions?select=id,local_id,track_name,is_track_active,is_show_critical,track_color,location_id&order=local_id.asc";
+      const legacyPath =
+        "/rest/v1/track_definitions?select=id,local_id,track_name,is_track_active,track_color,location_id&order=local_id.asc";
+
+      try {
+        let rows: TrackRow[] = [];
+        try {
+          rows = await supabaseGet(withLoc(withCriticalPath), cacheTag ? { cacheTag } : undefined);
+        } catch (firstErr) {
+          const msg = getErrorMessage(firstErr).toLowerCase();
+          const missingCriticalCol =
+            msg.includes("is_show_critical") ||
+            msg.includes("42703") ||
+            msg.includes("column");
+          if (!missingCriticalCol) throw firstErr;
+
+          rows = await supabaseGet(withLoc(legacyPath), cacheTag ? { cacheTag } : undefined);
+        }
+
+        safeSet(() =>
+          setTracks(
+            (rows || []).map((t: TrackRow): Track => ({
+              id: t.id,
+              localId: t.local_id,
+              name: t.track_name,
+              active: !!t.is_track_active,
+              showCritical: t.is_show_critical === true,
+              color: (t.track_color || "").trim(),
+            }))
+          )
+        );
+
+        markFetched("trackDefs");
+      } catch (e) {
+        if (!opts.silent) {
+          safeSet(() => setTracksError(getErrorMessage(e)));
+        } else {
+          console.warn("Background refresh failed", e);
+        }
+      } finally {
+        if (!opts.silent) {
+          safeSet(() => setTracksLoading(false));
+        }
+      }
     },
-    [loadList, setTracks, setTracksError, setTracksLoading]
+    [
+      cacheTag,
+      markFetched,
+      safeSet,
+      setTracks,
+      setTracksError,
+      setTracksLoading,
+      shouldFetch,
+      supabaseGet,
+      withLoc,
+    ]
   );
 
   const loadTrainingGroups = useCallback(
