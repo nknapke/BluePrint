@@ -10,6 +10,7 @@ export type Crew = {
   name: string;
   dept: string;
   active: boolean;
+  isDepartmentLead: boolean;
   statusRaw: string;
 };
 

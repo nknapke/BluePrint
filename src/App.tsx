@@ -200,6 +200,8 @@ export default function App() {
     setEditCrewDept,
     editCrewStatus,
     setEditCrewStatus,
+    editCrewLead,
+    setEditCrewLead,
     editCrewSaving,
     setEditCrewSaving,
 
@@ -1041,6 +1043,7 @@ export default function App() {
     setEditCrewName(c.name || "");
     setEditCrewDept(c.dept || "");
     setEditCrewStatus(c.active ? "Active" : "Not Active");
+    setEditCrewLead(!!c.isDepartmentLead);
   }
 
   function cancelEditCrew() {
@@ -1048,6 +1051,7 @@ export default function App() {
     setEditCrewName("");
     setEditCrewDept("");
     setEditCrewStatus("Active");
+    setEditCrewLead(false);
   }
 
   async function saveEditCrew(c: Crew) {
@@ -1061,11 +1065,27 @@ export default function App() {
 
     setEditCrewSaving(true);
     try {
-      await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, {
-        crew_name: newName,
-        home_department: newDept,
-        status: newStatus,
-      });
+      try {
+        await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, {
+          crew_name: newName,
+          home_department: newDept,
+          status: newStatus,
+          is_department_lead: !!editCrewLead,
+        });
+      } catch (firstErr) {
+        const msg = getErrorMessage(firstErr).toLowerCase();
+        const missingLeadCol =
+          msg.includes("is_department_lead") ||
+          msg.includes("42703") ||
+          msg.includes("column");
+        if (!missingLeadCol) throw firstErr;
+
+        await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, {
+          crew_name: newName,
+          home_department: newDept,
+          status: newStatus,
+        });
+      }
 
       invalidateMany([
         "/rest/v1/crew_roster",
@@ -1902,6 +1922,8 @@ export default function App() {
               setEditCrewDept={setEditCrewDept}
               editCrewStatus={editCrewStatus}
               setEditCrewStatus={setEditCrewStatus}
+              editCrewLead={editCrewLead}
+              setEditCrewLead={setEditCrewLead}
               editCrewSaving={editCrewSaving}
               openAddCrew={openAddCrew}
               loadCrew={loadCrew}

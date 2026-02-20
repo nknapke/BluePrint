@@ -415,7 +415,22 @@ export default function CrewSchedulesDayView({
                       }}
                     >
                       <div style={{ display: "grid", gap: 6 }}>
-                        <span>{c.crew_name}</span>
+                        <div style={{ display: "grid", gap: c?.is_department_lead ? 2 : 0 }}>
+                          <span>{c.crew_name}</span>
+                          {c?.is_department_lead ? (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 800,
+                                letterSpacing: "0.02em",
+                                textTransform: "uppercase",
+                                opacity: 0.72,
+                              }}
+                            >
+                              Department Lead
+                            </span>
+                          ) : null}
+                        </div>
                         {working ? (
                           <div
                             style={{

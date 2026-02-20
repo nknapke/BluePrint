@@ -99,6 +99,7 @@ type CrewRow = {
   crew_name: string;
   home_department: string;
   status: string;
+  is_department_lead?: boolean | string | number | null;
   location_id?: number;
 };
 
@@ -174,6 +175,10 @@ type TrainingRecordRow = {
 
 function getErrorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
+}
+
+function isTruthyFlag(value: unknown) {
+  return value === true || value === "true" || value === "t" || value === 1;
 }
 
 export function useDataLoaders({
@@ -376,24 +381,72 @@ export function useDataLoaders({
 
   const loadCrew = useCallback(
     async (force = false, opts: LoadOptions = {}) => {
-      await loadList({
-        key: "crew",
-        force,
-        setLoading: setCrewLoading,
-        setError: setCrewError,
-        path: "/rest/v1/crew_roster?select=id,crew_name,home_department,status,location_id&order=crew_name.asc",
-        mapRow: (c: CrewRow): Crew => ({
-          id: c.id,
-          name: c.crew_name,
-          dept: c.home_department,
-          active: c.status === "Active",
-          statusRaw: c.status,
-        }),
-        setRows: setCrew,
-        silent: opts.silent,
-      });
+      if (!force && !shouldFetch("crew")) return;
+
+      if (!opts.silent) {
+        safeSet(() => {
+          setCrewLoading(true);
+          setCrewError("");
+        });
+      }
+
+      const withLeadPath =
+        "/rest/v1/crew_roster?select=id,crew_name,home_department,status,is_department_lead,location_id&order=crew_name.asc";
+      const legacyPath =
+        "/rest/v1/crew_roster?select=id,crew_name,home_department,status,location_id&order=crew_name.asc";
+
+      try {
+        let rows: CrewRow[] = [];
+        try {
+          rows = await supabaseGet(withLoc(withLeadPath), cacheTag ? { cacheTag } : undefined);
+        } catch (firstErr) {
+          const msg = getErrorMessage(firstErr).toLowerCase();
+          const missingLeadCol =
+            msg.includes("is_department_lead") ||
+            msg.includes("42703") ||
+            msg.includes("column");
+          if (!missingLeadCol) throw firstErr;
+
+          rows = await supabaseGet(withLoc(legacyPath), cacheTag ? { cacheTag } : undefined);
+        }
+
+        safeSet(() =>
+          setCrew(
+            (rows || []).map((c: CrewRow): Crew => ({
+              id: c.id,
+              name: c.crew_name,
+              dept: c.home_department,
+              active: c.status === "Active",
+              isDepartmentLead: isTruthyFlag(c.is_department_lead),
+              statusRaw: c.status,
+            }))
+          )
+        );
+
+        markFetched("crew");
+      } catch (e) {
+        if (!opts.silent) {
+          safeSet(() => setCrewError(getErrorMessage(e)));
+        } else {
+          console.warn("Background refresh failed", e);
+        }
+      } finally {
+        if (!opts.silent) {
+          safeSet(() => setCrewLoading(false));
+        }
+      }
     },
-    [loadList, setCrew, setCrewError, setCrewLoading]
+    [
+      cacheTag,
+      markFetched,
+      safeSet,
+      setCrew,
+      setCrewError,
+      setCrewLoading,
+      shouldFetch,
+      supabaseGet,
+      withLoc,
+    ]
   );
 
   const loadTracks = useCallback(

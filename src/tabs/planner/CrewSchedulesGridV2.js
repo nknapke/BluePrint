@@ -17,6 +17,8 @@ const TIME_OPTIONS = Array.from({ length: 96 }, (_, i) => {
 
 const DEFAULT_DAY_START_TIME = "13:45:00";
 const DEFAULT_DAY_END_TIME = "21:45:00";
+const PTO_START_TIME = "12:00:00";
+const PTO_END_TIME = "12:00:00";
 const DAY_DESCRIPTION_OPTIONS = [
   "OFF",
   "Workcall",
@@ -78,6 +80,58 @@ const formatShortDay = (dateISO) => {
   });
 };
 
+const minutesFromTime = (value) => {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return null;
+  const hh = Number(match[1]);
+  const mm = Number(match[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return hh * 60 + mm;
+};
+
+const calcRegularHours = (startTime, endTime) => {
+  const startMin = minutesFromTime(startTime);
+  const endMin = minutesFromTime(endTime);
+  if (startMin === null || endMin === null) return null;
+  let diff = endMin - startMin;
+  if (diff < 0) diff += 24 * 60;
+  if (diff === 0) diff = 24 * 60;
+  return diff / 60;
+};
+
+const splitHours = (totalHours, isDepartmentLead) => {
+  if (totalHours === null || totalHours === undefined) {
+    return {
+      lead: null,
+      hours: null,
+      regularOvertime: null,
+      leadOvertime: null,
+    };
+  }
+  const n = Number(totalHours);
+  if (!Number.isFinite(n)) {
+    return {
+      lead: null,
+      hours: null,
+      regularOvertime: null,
+      leadOvertime: null,
+    };
+  }
+  const lead = isDepartmentLead ? Math.min(n, 8) : 0;
+  const hours = isDepartmentLead ? 0 : Math.min(n, 8);
+  const regularOvertime = isDepartmentLead ? 0 : Math.max(0, n - 8);
+  const leadOvertime = isDepartmentLead ? Math.max(0, n - 8) : 0;
+  return { lead, hours, regularOvertime, leadOvertime };
+};
+
+const formatHours = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+  const n = Number(value);
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(2);
+};
+
 export default function CrewSchedulesGridV2({
   S,
   roster,
@@ -118,6 +172,11 @@ export default function CrewSchedulesGridV2({
         ? roster.getShift
         : () => ({ startTime: null, endTime: null }),
     [roster?.getShift]
+  );
+  const getDayHours = useMemo(
+    () =>
+      typeof roster?.getDayHours === "function" ? roster.getDayHours : () => null,
+    [roster?.getDayHours]
   );
   const setShiftFor = useMemo(
     () => (typeof roster?.setShiftFor === "function" ? roster.setShiftFor : () => null),
@@ -335,6 +394,23 @@ export default function CrewSchedulesGridV2({
   const handleAddShiftForDay = (dateISO, crewId) => {
     if (savePaused || typeof setShiftFor !== "function") return;
     setShiftFor(dateISO, crewId, DEFAULT_DAY_START_TIME, DEFAULT_DAY_END_TIME);
+  };
+
+  const handleDayDescriptionChange = (dateISO, crewId, rawValue) => {
+    if (savePaused) return;
+    const nextValue = String(rawValue || "").trim();
+
+    if (nextValue === "PTO") {
+      setShiftFor(dateISO, crewId, PTO_START_TIME, PTO_END_TIME, "PTO");
+      for (const slot of showSlotsForDate(dateISO)) {
+        if (slot?.kind !== "show") continue;
+        const showId = slot?.show?.id ?? null;
+        setWorkingFor(dateISO, crewId, showId, false);
+      }
+      return;
+    }
+
+    setDayDescriptionFor(dateISO, crewId, nextValue || null);
   };
 
   const handleClearDayForCrew = (dateISO, crewId) => {
@@ -561,7 +637,7 @@ export default function CrewSchedulesGridV2({
                       <Fragment key={`crew-${crew.id}`}>
                         <tr>
                           <td
-                            rowSpan={3}
+                            rowSpan={4}
                             style={{
                               border: "1px solid #d8dbe3",
                               background: "#f9fbff",
@@ -575,6 +651,19 @@ export default function CrewSchedulesGridV2({
                             <div style={{ fontSize: 12, fontWeight: 800 }}>
                               {crew.crew_name || "Crew"}
                             </div>
+                            {crew?.is_department_lead ? (
+                              <div
+                                style={{
+                                  fontSize: 9,
+                                  fontWeight: 800,
+                                  letterSpacing: "0.02em",
+                                  textTransform: "uppercase",
+                                  color: "#3a5e9d",
+                                }}
+                              >
+                                Department Lead
+                              </div>
+                            ) : null}
                             <div style={{ fontSize: 10, color: "#667" }}>
                               {prettyDept(crew?.home_department)}
                             </div>
@@ -594,13 +683,13 @@ export default function CrewSchedulesGridV2({
                             return (
                               <td
                                 key={`off-day-${crew.id}-${dateISO}`}
-                                rowSpan={3}
+                                rowSpan={4}
                                 colSpan={span}
                                 style={{
                                   border: "1px solid #d8dbe3",
                                   background: "#fff",
                                   padding: "4px",
-                                  height: 92,
+                                  height: 116,
                                   position: "relative",
                                   verticalAlign: "top",
                                 }}
@@ -931,7 +1020,7 @@ export default function CrewSchedulesGridV2({
                                   disabled={savePaused}
                                   value={dayDescription}
                                   onChange={(e) =>
-                                    setDayDescriptionFor(
+                                    handleDayDescriptionChange(
                                       dateISO,
                                       crew.id,
                                       e.target.value || null
@@ -959,6 +1048,124 @@ export default function CrewSchedulesGridV2({
                                     </option>
                                   ))}
                                 </select>
+                              </td>,
+                            ];
+                          })}
+                        </tr>
+
+                        <tr>
+                          {days.flatMap((dateISO) => {
+                            if (!showDayDetailForCrew(dateISO, crew.id)) return [];
+                            const span = colsForDate(dateISO);
+                            const shift = getShift(dateISO, crew.id) || {};
+                            const totalHours = calcRegularHours(
+                              shift?.startTime || null,
+                              shift?.endTime || null
+                            );
+                            const fallbackHours = splitHours(
+                              totalHours,
+                              !!crew?.is_department_lead
+                            );
+                            const dbHours = getDayHours(dateISO, crew.id);
+                            const lead = dbHours?.leadHours ?? fallbackHours.lead;
+                            const hours = dbHours?.regularHours ?? fallbackHours.hours;
+                            const regularOvertime =
+                              dbHours?.regularOvertimeHours ??
+                              fallbackHours.regularOvertime;
+                            const leadOvertime =
+                              dbHours?.leadOvertimeHours ??
+                              fallbackHours.leadOvertime;
+                            const visibleHourItems = [
+                              { key: "lead", label: "Lead Hours", value: lead },
+                              { key: "hours", label: "Hours", value: hours },
+                              {
+                                key: "r-ot",
+                                label: "(R) Overtime",
+                                value: regularOvertime,
+                              },
+                              {
+                                key: "l-ot",
+                                label: "(L) Overtime",
+                                value: leadOvertime,
+                              },
+                            ].filter((item) => {
+                              const n = Number(item.value);
+                              return Number.isFinite(n) && n > 0;
+                            });
+                            return [
+                              <td
+                                key={`hours-${crew.id}-${dateISO}`}
+                                colSpan={span}
+                                style={{
+                                  border: "1px solid #d8dbe3",
+                                  background: "#f6f7fb",
+                                  padding: "2px 6px",
+                                  height: 28,
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: visibleHourItems.length
+                                      ? `repeat(${visibleHourItems.length}, minmax(0, 1fr))`
+                                      : "1fr",
+                                    gap: 0,
+                                    alignItems: "center",
+                                    fontSize: 10,
+                                    color: "#4b556e",
+                                  }}
+                                >
+                                  {visibleHourItems.map((item, idx) => {
+                                    const n = Number(item.value);
+                                    const isOvertime = item.key === "r-ot" || item.key === "l-ot";
+                                    const isHot = isOvertime && n > 0;
+                                    const textAlign =
+                                      visibleHourItems.length === 1
+                                        ? "center"
+                                        : idx === 0
+                                        ? "left"
+                                        : idx === visibleHourItems.length - 1
+                                        ? "right"
+                                        : "center";
+                                    return (
+                                      <div
+                                        key={`${crew.id}-${dateISO}-${item.key}`}
+                                        style={{
+                                          padding: "0 8px",
+                                          textAlign,
+                                          borderLeft:
+                                            idx === 0
+                                              ? "none"
+                                              : "1px solid rgba(31,53,92,0.14)",
+                                          whiteSpace: "nowrap",
+                                          overflow: "hidden",
+                                          textOverflow: "ellipsis",
+                                        }}
+                                      >
+                                        <span
+                                          style={{
+                                            fontWeight: 800,
+                                            color: isHot
+                                              ? "#9a3412"
+                                              : "#5b6479",
+                                          }}
+                                        >
+                                          {item.label}:
+                                        </span>{" "}
+                                        <span
+                                          style={{
+                                            fontWeight: 900,
+                                            color: isHot
+                                              ? "#9a3412"
+                                              : "#1f355c",
+                                          }}
+                                        >
+                                          {formatHours(item.value)}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </td>,
                             ];
                           })}

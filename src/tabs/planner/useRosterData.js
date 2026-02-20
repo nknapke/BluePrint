@@ -32,9 +32,19 @@ function normalizeShowId(value) {
   return n;
 }
 
+function isTruthyFlag(value) {
+  return value === true || value === "true" || value === "t" || value === 1;
+}
+
 function normalizeDayDescription(value) {
   const s = String(value || "").trim();
   return s ? s : null;
+}
+
+function normalizeHourNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function keyOf(dateISO, showId, crewId) {
@@ -79,6 +89,7 @@ export default function useRosterData({
 
   // Shift times (per crew/day)
   const [shiftMap, setShiftMap] = useState(() => new Map());
+  const [dayHoursMap, setDayHoursMap] = useState(() => new Map());
   const [shiftLoading, setShiftLoading] = useState(false);
   const [shiftError, setShiftError] = useState("");
 
@@ -127,6 +138,7 @@ export default function useRosterData({
   // Dirty buffer for debounced saving
   const dirtyRef = useRef(new Map()); // key -> { location_id, work_date, crew_id, show_id, is_working, track_id }
   const saveTimerRef = useRef(null);
+  const pendingAutoShowsRef = useRef(new Set());
 
   const canRun =
     !!location &&
@@ -139,17 +151,42 @@ export default function useRosterData({
     setCrewError("");
 
     try {
-      const path =
+      const withLeadPath =
+        "/rest/v1/crew_roster" +
+        `?select=id,crew_name,home_department,status,is_department_lead,location_id` +
+        `&location_id=eq.${Number(location)}` +
+        `&status=eq.Active` +
+        `&order=crew_name.asc`;
+      const legacyPath =
         "/rest/v1/crew_roster" +
         `?select=id,crew_name,home_department,status,location_id` +
         `&location_id=eq.${Number(location)}` +
         `&status=eq.Active` +
         `&order=crew_name.asc`;
 
-      const rows = await supabaseGet(path, {
-        cacheTag: `roster:crew:${location}`,
-      });
-      setCrew(Array.isArray(rows) ? rows : []);
+      let rows = [];
+      try {
+        rows = await supabaseGet(withLeadPath, {
+          cacheTag: `roster:crew:${location}`,
+        });
+      } catch (firstErr) {
+        const msg = String(firstErr?.message || firstErr || "").toLowerCase();
+        const missingLeadCol =
+          msg.includes("is_department_lead") ||
+          msg.includes("42703") ||
+          msg.includes("column");
+        if (!missingLeadCol) throw firstErr;
+
+        rows = await supabaseGet(legacyPath, {
+          cacheTag: `roster:crew:${location}`,
+        });
+      }
+      setCrew(
+        (Array.isArray(rows) ? rows : []).map((r) => ({
+          ...r,
+          is_department_lead: isTruthyFlag(r?.is_department_lead),
+        }))
+      );
     } catch (e) {
       setCrewError(String(e?.message || e));
       setCrew([]);
@@ -273,9 +310,49 @@ export default function useRosterData({
           });
         }
         setShiftMap(next);
+
+        try {
+          const hoursPath =
+            "/rest/v1/v_crew_day_hours" +
+            `?select=location_id,work_date,crew_id,total_hours,lead_hours,hours,regular_overtime_hours,lead_overtime_hours` +
+            `&location_id=eq.${Number(location)}` +
+            `&work_date=gte.${rs}` +
+            `&work_date=lte.${re}`;
+
+          const hourRows = await supabaseGet(hoursPath, {
+            cacheTag: `roster:dayhours:${location}:${rs}:${re}`,
+            ...opts,
+          });
+
+          const nextHours = new Map();
+          for (const r of Array.isArray(hourRows) ? hourRows : []) {
+            const d = safeISODate(r.work_date);
+            const cid = Number(r.crew_id);
+            if (!d || !Number.isFinite(cid)) continue;
+            nextHours.set(shiftKey(d, cid), {
+              totalHours: normalizeHourNumber(r.total_hours),
+              leadHours: normalizeHourNumber(r.lead_hours),
+              regularHours: normalizeHourNumber(r.hours),
+              regularOvertimeHours: normalizeHourNumber(r.regular_overtime_hours),
+              leadOvertimeHours: normalizeHourNumber(r.lead_overtime_hours),
+            });
+          }
+          setDayHoursMap(nextHours);
+        } catch (hoursErr) {
+          const msg = String(hoursErr?.message || hoursErr || "").toLowerCase();
+          const missingView =
+            msg.includes("v_crew_day_hours") ||
+            msg.includes("42p01") ||
+            msg.includes("relation");
+          if (!missingView) {
+            setShiftError(String(hoursErr?.message || hoursErr));
+          }
+          setDayHoursMap(new Map());
+        }
       } catch (e) {
         setShiftError(String(e?.message || e));
         setShiftMap(new Map());
+        setDayHoursMap(new Map());
       } finally {
         setShiftLoading(false);
       }
@@ -346,6 +423,25 @@ export default function useRosterData({
       };
     },
     [shiftMap]
+  );
+
+  const getDayHours = useCallback(
+    (dateISO, crewId) => {
+      const d = safeISODate(dateISO);
+      if (!d) return null;
+      const cid = Number(crewId);
+      if (!Number.isFinite(cid)) return null;
+      const entry = dayHoursMap.get(shiftKey(d, cid));
+      if (!entry) return null;
+      return {
+        totalHours: normalizeHourNumber(entry?.totalHours),
+        leadHours: normalizeHourNumber(entry?.leadHours),
+        regularHours: normalizeHourNumber(entry?.regularHours),
+        regularOvertimeHours: normalizeHourNumber(entry?.regularOvertimeHours),
+        leadOvertimeHours: normalizeHourNumber(entry?.leadOvertimeHours),
+      };
+    },
+    [dayHoursMap]
   );
 
   const setShiftFor = useCallback(
@@ -565,6 +661,26 @@ export default function useRosterData({
     [location, supabaseDelete, loadShowsForRange, startISO, endISO]
   );
 
+  const allShowsTrackedForCrewOnDay = useCallback(
+    (dateISO, crewId, sourceMap) => {
+      const d = safeISODate(dateISO);
+      if (!d) return false;
+      const cid = Number(crewId);
+      if (!Number.isFinite(cid)) return false;
+
+      const showsForDay = (showsByDate.get(d) || []).slice(0, 4);
+      if (!showsForDay.length) return false;
+
+      for (const show of showsForDay) {
+        const entry = sourceMap.get(keyOf(d, show.id, cid));
+        if (!entry?.isWorking) return false;
+        if (!normalizeTrackId(entry?.trackId)) return false;
+      }
+      return true;
+    },
+    [showsByDate]
+  );
+
   const setAssignmentFor = useCallback(
     (dateISO, crewId, showId, next) => {
       if (savePaused) return;
@@ -591,6 +707,7 @@ export default function useRosterData({
         m.set(k, { isWorking: nextIsWorking, trackId: nextTrackId, showId: sid });
         return m;
       });
+      pendingAutoShowsRef.current.add(`${d}|${cid}`);
 
       dirtyRef.current.set(k, {
         location_id: lid,
@@ -629,6 +746,32 @@ export default function useRosterData({
     },
     [getAssignment, setAssignmentFor]
   );
+
+  useEffect(() => {
+    const pending = Array.from(pendingAutoShowsRef.current);
+    if (!pending.length) return;
+    pendingAutoShowsRef.current.clear();
+
+    for (const key of pending) {
+      const [dRaw, crewRaw] = String(key || "").split("|");
+      const d = safeISODate(dRaw);
+      const cid = Number(crewRaw);
+      if (!d || !Number.isFinite(cid)) continue;
+
+      if (!allShowsTrackedForCrewOnDay(d, cid, assignMap)) continue;
+
+      const currentShift = getShift(d, cid);
+      if (normalizeDayDescription(currentShift?.dayDescription) === "Shows") continue;
+
+      setShiftFor(
+        d,
+        cid,
+        currentShift?.startTime || null,
+        currentShift?.endTime || null,
+        "Shows"
+      );
+    }
+  }, [assignMap, allShowsTrackedForCrewOnDay, getShift, setShiftFor]);
 
   const assignCrewToTrack = useCallback(
     (dateISO, crewId, showId, nextTrackId) => {
@@ -795,6 +938,7 @@ export default function useRosterData({
     if (!startISO || !endISO) return;
     if (force) {
       setAssignMap(new Map());
+      setDayHoursMap(new Map());
     }
     loadAssignmentsForRange(startISO, endISO, force ? { bypassCache: true } : {});
     loadShowsForRange(startISO, endISO, force ? { bypassCache: true } : {});
@@ -837,6 +981,7 @@ export default function useRosterData({
     shiftLoading,
     shiftError,
     getShift,
+    getDayHours,
     setShiftFor,
     setDayDescriptionFor,
 

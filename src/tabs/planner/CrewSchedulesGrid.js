@@ -1005,6 +1005,19 @@ export default function CrewSchedulesGrid({
                           <div style={{ fontWeight: 900, fontSize: compact ? 12 : 14 }}>
                             {c.crew_name}
                           </div>
+                          {c?.is_department_lead ? (
+                            <div
+                              style={{
+                                fontSize: compact ? 9 : 10,
+                                fontWeight: 800,
+                                letterSpacing: "0.02em",
+                                textTransform: "uppercase",
+                                opacity: 0.72,
+                              }}
+                            >
+                              Department Lead
+                            </div>
+                          ) : null}
                           <div style={{ fontSize: compact ? 10 : 12, opacity: 0.6 }}>
                             {prettyDept(c.home_department)}
                           </div>

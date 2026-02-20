@@ -153,7 +153,22 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast, deptOptions }) {
                 placeholder="Name"
               />
             ) : (
-              c.name
+              <div style={{ display: "grid", gap: c.isDepartmentLead ? 2 : 0 }}>
+                <span>{c.name}</span>
+                {c.isDepartmentLead ? (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 800,
+                      letterSpacing: "0.02em",
+                      textTransform: "uppercase",
+                      color: "rgba(255,255,255,0.62)",
+                    }}
+                  >
+                    Department Lead
+                  </span>
+                ) : null}
+              </div>
             )}
           </div>
 
@@ -193,6 +208,27 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast, deptOptions }) {
               <option value="Active">Active</option>
               <option value="Not Active">Not Active</option>
             </select>
+
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "0 2px",
+                height: 34,
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={!!edit.editCrewLead}
+                onChange={(e) => edit.setEditCrewLead(e.target.checked)}
+                style={{ width: 14, height: 14 }}
+              />
+              Department Lead
+            </label>
           </div>
         ) : null}
       </div>
@@ -280,6 +316,8 @@ export default function CrewTab({
   setEditCrewDept,
   editCrewStatus,
   setEditCrewStatus,
+  editCrewLead,
+  setEditCrewLead,
   editCrewSaving,
 
   // actions
@@ -592,6 +630,8 @@ export default function CrewTab({
     setEditCrewDept,
     editCrewStatus,
     setEditCrewStatus,
+    editCrewLead,
+    setEditCrewLead,
     editCrewSaving,
   };
 
