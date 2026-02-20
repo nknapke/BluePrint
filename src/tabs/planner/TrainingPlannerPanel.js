@@ -185,6 +185,7 @@ function formatReasoningSummaryParts(day) {
 export default function TrainingPlannerPanel({
   S,
   locId,
+  activeLocationName = "",
   supabaseRpc,
   supabaseGet,
   supabasePatch,
@@ -672,7 +673,8 @@ export default function TrainingPlannerPanel({
   const handlePrint = async () => {
     if (!planId || printBusy) return;
     setPrintBusy(true);
-    const title = selectedPlan?.title || "Training Plan";
+    const locationLabel = String(activeLocationName || "").trim() || "Selected Location";
+    const title = `BMG - ${locationLabel} Contingency Trainings`;
     const status = selectedPlan?.status || "Draft";
     const header = planRangeLabel ? `${planRangeLabel} (${status})` : status;
     try {

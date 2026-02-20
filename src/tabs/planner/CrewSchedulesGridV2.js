@@ -17,6 +17,15 @@ const TIME_OPTIONS = Array.from({ length: 96 }, (_, i) => {
 
 const DEFAULT_DAY_START_TIME = "13:45:00";
 const DEFAULT_DAY_END_TIME = "21:45:00";
+const DAY_DESCRIPTION_OPTIONS = [
+  "OFF",
+  "Workcall",
+  "WC/Presets",
+  "WC/Shows",
+  "PTO",
+  "Rehearsal",
+  "Shows",
+];
 
 const parseTimeInput = (value) => {
   if (!value) return null;
@@ -113,6 +122,13 @@ export default function CrewSchedulesGridV2({
   const setShiftFor = useMemo(
     () => (typeof roster?.setShiftFor === "function" ? roster.setShiftFor : () => null),
     [roster?.setShiftFor]
+  );
+  const setDayDescriptionFor = useMemo(
+    () =>
+      typeof roster?.setDayDescriptionFor === "function"
+        ? roster.setDayDescriptionFor
+        : () => null,
+    [roster?.setDayDescriptionFor]
   );
 
   const trackOptions = useMemo(
@@ -306,8 +322,15 @@ export default function CrewSchedulesGridV2({
     return !!(shift?.startTime && shift?.endTime);
   };
 
+  const hasDayDescriptionForDay = (dateISO, crewId) => {
+    const shift = getShift(dateISO, crewId) || {};
+    return !!String(shift?.dayDescription || "").trim();
+  };
+
   const showDayDetailForCrew = (dateISO, crewId) =>
-    hasCompleteShiftForDay(dateISO, crewId) || hasWorkingShowForDay(dateISO, crewId);
+    hasCompleteShiftForDay(dateISO, crewId) ||
+    hasWorkingShowForDay(dateISO, crewId) ||
+    hasDayDescriptionForDay(dateISO, crewId);
 
   const handleAddShiftForDay = (dateISO, crewId) => {
     if (savePaused || typeof setShiftFor !== "function") return;
@@ -316,7 +339,7 @@ export default function CrewSchedulesGridV2({
 
   const handleClearDayForCrew = (dateISO, crewId) => {
     if (savePaused) return;
-    setShiftFor(dateISO, crewId, null, null);
+    setShiftFor(dateISO, crewId, null, null, null);
     for (const slot of showSlotsForDate(dateISO)) {
       if (slot?.kind !== "show") continue;
       const showId = slot?.show?.id ?? null;
@@ -538,7 +561,7 @@ export default function CrewSchedulesGridV2({
                       <Fragment key={`crew-${crew.id}`}>
                         <tr>
                           <td
-                            rowSpan={2}
+                            rowSpan={3}
                             style={{
                               border: "1px solid #d8dbe3",
                               background: "#f9fbff",
@@ -571,13 +594,13 @@ export default function CrewSchedulesGridV2({
                             return (
                               <td
                                 key={`off-day-${crew.id}-${dateISO}`}
-                                rowSpan={2}
+                                rowSpan={3}
                                 colSpan={span}
                                 style={{
                                   border: "1px solid #d8dbe3",
                                   background: "#fff",
                                   padding: "4px",
-                                  height: 62,
+                                  height: 92,
                                   position: "relative",
                                   verticalAlign: "top",
                                 }}
@@ -882,6 +905,62 @@ export default function CrewSchedulesGridV2({
                                 </td>
                               );
                             });
+                          })}
+                        </tr>
+
+                        <tr>
+                          {days.flatMap((dateISO) => {
+                            if (!showDayDetailForCrew(dateISO, crew.id)) return [];
+                            const span = colsForDate(dateISO);
+                            const shift = getShift(dateISO, crew.id) || {};
+                            const dayDescription = String(
+                              shift?.dayDescription || ""
+                            ).trim();
+                            return [
+                              <td
+                                key={`desc-${crew.id}-${dateISO}`}
+                                colSpan={span}
+                                style={{
+                                  border: "1px solid #d8dbe3",
+                                  background: "#f8f9fc",
+                                  padding: "4px",
+                                  height: 28,
+                                }}
+                              >
+                                <select
+                                  disabled={savePaused}
+                                  value={dayDescription}
+                                  onChange={(e) =>
+                                    setDayDescriptionFor(
+                                      dateISO,
+                                      crew.id,
+                                      e.target.value || null
+                                    )
+                                  }
+                                  style={{
+                                    width: "100%",
+                                    height: 20,
+                                    minWidth: 0,
+                                    borderRadius: 999,
+                                    border: "1px solid #d7dbe7",
+                                    background: "#fff",
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    padding: "0 8px",
+                                  }}
+                                >
+                                  <option value="">Select day description</option>
+                                  {DAY_DESCRIPTION_OPTIONS.map((opt) => (
+                                    <option
+                                      key={`day-description-${crew.id}-${dateISO}-${opt}`}
+                                      value={opt}
+                                    >
+                                      {opt}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>,
+                            ];
                           })}
                         </tr>
                       </Fragment>

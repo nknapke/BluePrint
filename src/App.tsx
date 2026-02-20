@@ -309,6 +309,11 @@ export default function App() {
 
   // LocationContext (global)
   const { activeLocationId, setActiveLocationId } = useLocation();
+  const activeLocationName = useMemo(() => {
+    if (!activeLocationId) return "";
+    const row = (locations || []).find((l) => Number(l?.id) === Number(activeLocationId));
+    return String(row?.name || "").trim();
+  }, [activeLocationId, locations]);
 
   // Add location scoping helpers (used in a couple manual queries)
   const withLoc = useCallback(
@@ -2035,6 +2040,7 @@ export default function App() {
             <PlannerTab
               S={S}
               activeLocationId={activeLocationId}
+              activeLocationName={activeLocationName}
               supabaseRpc={supabaseRpc}
               supabaseGet={supabaseGet}
               supabasePost={supabasePost}

@@ -6,6 +6,7 @@ import TrainingPlannerPanel from "./planner/TrainingPlannerPanel";
 export default function PlannerTab({
   S,
   activeLocationId,
+  activeLocationName = "",
   locationId = null,
   supabaseRpc,
   supabaseGet,
@@ -63,6 +64,7 @@ export default function PlannerTab({
       <TrainingPlannerPanel
         S={S}
         locId={locId}
+        activeLocationName={activeLocationName}
         supabaseRpc={supabaseRpc}
         supabaseGet={supabaseGet}
         supabasePatch={supabasePatch}

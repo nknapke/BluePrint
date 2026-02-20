@@ -32,6 +32,11 @@ function normalizeShowId(value) {
   return n;
 }
 
+function normalizeDayDescription(value) {
+  const s = String(value || "").trim();
+  return s ? s : null;
+}
+
 function keyOf(dateISO, showId, crewId) {
   const sid = normalizeShowId(showId) ?? 0;
   return `${dateISO}|${sid}|${Number(crewId)}`;
@@ -246,7 +251,7 @@ export default function useRosterData({
       try {
         const path =
           "/rest/v1/crew_work_shifts" +
-          `?select=location_id,work_date,crew_id,start_time,end_time` +
+          `?select=location_id,work_date,crew_id,start_time,end_time,day_description` +
           `&location_id=eq.${Number(location)}` +
           `&work_date=gte.${rs}` +
           `&work_date=lte.${re}`;
@@ -264,6 +269,7 @@ export default function useRosterData({
           next.set(shiftKey(d, cid), {
             startTime: r.start_time || null,
             endTime: r.end_time || null,
+            dayDescription: normalizeDayDescription(r.day_description),
           });
         }
         setShiftMap(next);
@@ -328,41 +334,53 @@ export default function useRosterData({
   const getShift = useCallback(
     (dateISO, crewId) => {
       const d = safeISODate(dateISO);
-      if (!d) return { startTime: null, endTime: null };
+      if (!d) return { startTime: null, endTime: null, dayDescription: null };
       const cid = Number(crewId);
-      if (!Number.isFinite(cid)) return { startTime: null, endTime: null };
+      if (!Number.isFinite(cid))
+        return { startTime: null, endTime: null, dayDescription: null };
       const entry = shiftMap.get(shiftKey(d, cid));
       return {
         startTime: entry?.startTime || null,
         endTime: entry?.endTime || null,
+        dayDescription: normalizeDayDescription(entry?.dayDescription),
       };
     },
     [shiftMap]
   );
 
   const setShiftFor = useCallback(
-    async (dateISO, crewId, startTime, endTime) => {
+    async (dateISO, crewId, startTime, endTime, dayDescription = undefined) => {
       if (!location || typeof supabasePost !== "function") return;
       const d = safeISODate(dateISO);
       if (!d) return;
       const cid = Number(crewId);
       if (!Number.isFinite(cid)) return;
 
+      const current = getShift(d, cid);
       const nextStart = startTime || null;
       const nextEnd = endTime || null;
+      const nextDayDescription =
+        dayDescription === undefined
+          ? normalizeDayDescription(current?.dayDescription)
+          : normalizeDayDescription(dayDescription);
+
       setShiftMap((prev) => {
         const m = new Map(prev);
-        if (!nextStart && !nextEnd) {
+        if (!nextStart && !nextEnd && !nextDayDescription) {
           m.delete(shiftKey(d, cid));
         } else {
-          m.set(shiftKey(d, cid), { startTime: nextStart, endTime: nextEnd });
+          m.set(shiftKey(d, cid), {
+            startTime: nextStart,
+            endTime: nextEnd,
+            dayDescription: nextDayDescription,
+          });
         }
         return m;
       });
 
       setShiftError("");
       try {
-        if (!nextStart && !nextEnd) {
+        if (!nextStart && !nextEnd && !nextDayDescription) {
           if (typeof supabaseDelete === "function") {
             await supabaseDelete(
               `/rest/v1/crew_work_shifts?location_id=eq.${Number(
@@ -381,6 +399,7 @@ export default function useRosterData({
               crew_id: cid,
               start_time: nextStart,
               end_time: nextEnd,
+              day_description: nextDayDescription,
             },
           ],
           { headers: { Prefer: "resolution=merge-duplicates,return=minimal" } }
@@ -389,7 +408,21 @@ export default function useRosterData({
         setShiftError(String(e?.message || e));
       }
     },
-    [location, supabasePost, supabaseDelete]
+    [location, supabasePost, supabaseDelete, getShift]
+  );
+
+  const setDayDescriptionFor = useCallback(
+    async (dateISO, crewId, dayDescription) => {
+      const current = getShift(dateISO, crewId);
+      await setShiftFor(
+        dateISO,
+        crewId,
+        current?.startTime || null,
+        current?.endTime || null,
+        dayDescription
+      );
+    },
+    [getShift, setShiftFor]
   );
 
   const flushSave = useCallback(async () => {
@@ -671,7 +704,7 @@ export default function useRosterData({
     try {
       const shiftPath =
         "/rest/v1/crew_work_shifts" +
-        `?select=work_date,crew_id,start_time,end_time,location_id` +
+        `?select=work_date,crew_id,start_time,end_time,day_description,location_id` +
         `&location_id=eq.${Number(location)}` +
         `&work_date=gte.${prevStart}` +
         `&work_date=lte.${prevEnd}`;
@@ -703,6 +736,7 @@ export default function useRosterData({
       prevShiftMap.set(shiftKey(d, cid), {
         startTime: r.start_time || null,
         endTime: r.end_time || null,
+        dayDescription: normalizeDayDescription(r.day_description),
       });
     }
 
@@ -726,7 +760,13 @@ export default function useRosterData({
 
         const prevShift = prevShiftMap.get(shiftKey(prevDay, c.id));
         if (prevShift) {
-          setShiftFor(curDay, c.id, prevShift.startTime, prevShift.endTime);
+          setShiftFor(
+            curDay,
+            c.id,
+            prevShift.startTime,
+            prevShift.endTime,
+            prevShift.dayDescription
+          );
         }
       }
     }
@@ -798,6 +838,7 @@ export default function useRosterData({
     shiftError,
     getShift,
     setShiftFor,
+    setDayDescriptionFor,
 
     // assignments
     assignLoading,
