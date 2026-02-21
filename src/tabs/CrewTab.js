@@ -6,6 +6,16 @@ import { Chip } from "../components/ui/Chip";
 import { useExpandableKeys } from "../hooks/useExpandableKeys";
 import { prettyTitle } from "../utils/strings";
 
+const WEEKDAY_OPTIONS = [
+  { value: "0", label: "Sunday" },
+  { value: "1", label: "Monday" },
+  { value: "2", label: "Tuesday" },
+  { value: "3", label: "Wednesday" },
+  { value: "4", label: "Thursday" },
+  { value: "5", label: "Friday" },
+  { value: "6", label: "Saturday" },
+];
+
 function GroupHeaderIOS({ title, subtitle, open, onToggle }) {
   return (
     <button
@@ -229,6 +239,32 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast, deptOptions }) {
               />
               Department Lead
             </label>
+
+            <select
+              value={edit.editCrewOffDay1 || ""}
+              onChange={(e) => edit.setEditCrewOffDay1(e.target.value)}
+              style={{ ...S.select, width: 180 }}
+            >
+              <option value="">Weekly Day Off 1</option>
+              {WEEKDAY_OPTIONS.map((d) => (
+                <option key={`off-day-1-${d.value}`} value={d.value}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={edit.editCrewOffDay2 || ""}
+              onChange={(e) => edit.setEditCrewOffDay2(e.target.value)}
+              style={{ ...S.select, width: 180 }}
+            >
+              <option value="">Weekly Day Off 2</option>
+              {WEEKDAY_OPTIONS.map((d) => (
+                <option key={`off-day-2-${d.value}`} value={d.value}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
           </div>
         ) : null}
       </div>
@@ -318,6 +354,10 @@ export default function CrewTab({
   setEditCrewStatus,
   editCrewLead,
   setEditCrewLead,
+  editCrewOffDay1,
+  setEditCrewOffDay1,
+  editCrewOffDay2,
+  setEditCrewOffDay2,
   editCrewSaving,
 
   // actions
@@ -632,6 +672,10 @@ export default function CrewTab({
     setEditCrewStatus,
     editCrewLead,
     setEditCrewLead,
+    editCrewOffDay1,
+    setEditCrewOffDay1,
+    editCrewOffDay2,
+    setEditCrewOffDay2,
     editCrewSaving,
   };
 

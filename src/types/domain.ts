@@ -11,6 +11,8 @@ export type Crew = {
   dept: string;
   active: boolean;
   isDepartmentLead: boolean;
+  weeklyOffDay1?: number | null;
+  weeklyOffDay2?: number | null;
   statusRaw: string;
 };
 

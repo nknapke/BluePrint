@@ -100,6 +100,8 @@ type CrewRow = {
   home_department: string;
   status: string;
   is_department_lead?: boolean | string | number | null;
+  weekly_off_day_1?: number | null;
+  weekly_off_day_2?: number | null;
   location_id?: number;
 };
 
@@ -391,6 +393,8 @@ export function useDataLoaders({
       }
 
       const withLeadPath =
+        "/rest/v1/crew_roster?select=id,crew_name,home_department,status,is_department_lead,weekly_off_day_1,weekly_off_day_2,location_id&order=crew_name.asc";
+      const withLeadOnlyPath =
         "/rest/v1/crew_roster?select=id,crew_name,home_department,status,is_department_lead,location_id&order=crew_name.asc";
       const legacyPath =
         "/rest/v1/crew_roster?select=id,crew_name,home_department,status,location_id&order=crew_name.asc";
@@ -401,13 +405,23 @@ export function useDataLoaders({
           rows = await supabaseGet(withLoc(withLeadPath), cacheTag ? { cacheTag } : undefined);
         } catch (firstErr) {
           const msg = getErrorMessage(firstErr).toLowerCase();
-          const missingLeadCol =
-            msg.includes("is_department_lead") ||
-            msg.includes("42703") ||
-            msg.includes("column");
-          if (!missingLeadCol) throw firstErr;
+          const missingWeeklyCols =
+            msg.includes("weekly_off_day_1") || msg.includes("weekly_off_day_2");
+          const missingLeadCol = msg.includes("is_department_lead");
+          const missingColumn = msg.includes("42703") || msg.includes("column");
+          if (!missingColumn && !missingLeadCol && !missingWeeklyCols) throw firstErr;
 
-          rows = await supabaseGet(withLoc(legacyPath), cacheTag ? { cacheTag } : undefined);
+          if (missingWeeklyCols && !missingLeadCol) {
+            rows = await supabaseGet(
+              withLoc(withLeadOnlyPath),
+              cacheTag ? { cacheTag } : undefined
+            );
+          } else {
+            rows = await supabaseGet(
+              withLoc(legacyPath),
+              cacheTag ? { cacheTag } : undefined
+            );
+          }
         }
 
         safeSet(() =>
@@ -418,6 +432,18 @@ export function useDataLoaders({
               dept: c.home_department,
               active: c.status === "Active",
               isDepartmentLead: isTruthyFlag(c.is_department_lead),
+              weeklyOffDay1:
+                c.weekly_off_day_1 == null
+                  ? null
+                  : Number.isFinite(Number(c.weekly_off_day_1))
+                  ? Number(c.weekly_off_day_1)
+                  : null,
+              weeklyOffDay2:
+                c.weekly_off_day_2 == null
+                  ? null
+                  : Number.isFinite(Number(c.weekly_off_day_2))
+                  ? Number(c.weekly_off_day_2)
+                  : null,
               statusRaw: c.status,
             }))
           )

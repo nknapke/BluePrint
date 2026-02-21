@@ -87,6 +87,8 @@ export function useAppState() {
   const [editCrewDept, setEditCrewDept] = useState("");
   const [editCrewStatus, setEditCrewStatus] = useState("Active");
   const [editCrewLead, setEditCrewLead] = useState(false);
+  const [editCrewOffDay1, setEditCrewOffDay1] = useState("");
+  const [editCrewOffDay2, setEditCrewOffDay2] = useState("");
   const [editCrewSaving, setEditCrewSaving] = useState(false);
 
   // Inline edit (training definitions)
@@ -246,6 +248,10 @@ export function useAppState() {
     setEditCrewStatus,
     editCrewLead,
     setEditCrewLead,
+    editCrewOffDay1,
+    setEditCrewOffDay1,
+    editCrewOffDay2,
+    setEditCrewOffDay2,
     editCrewSaving,
     setEditCrewSaving,
 

@@ -47,6 +47,15 @@ function normalizeHourNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function normalizeWeekdayNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const i = Math.trunc(n);
+  if (i < 0 || i > 6) return null;
+  return i;
+}
+
 function keyOf(dateISO, showId, crewId) {
   const sid = normalizeShowId(showId) ?? 0;
   return `${dateISO}|${sid}|${Number(crewId)}`;
@@ -151,6 +160,12 @@ export default function useRosterData({
     setCrewError("");
 
     try {
+      const withMetaPath =
+        "/rest/v1/crew_roster" +
+        `?select=id,crew_name,home_department,status,is_department_lead,weekly_off_day_1,weekly_off_day_2,location_id` +
+        `&location_id=eq.${Number(location)}` +
+        `&status=eq.Active` +
+        `&order=crew_name.asc`;
       const withLeadPath =
         "/rest/v1/crew_roster" +
         `?select=id,crew_name,home_department,status,is_department_lead,location_id` +
@@ -166,25 +181,42 @@ export default function useRosterData({
 
       let rows = [];
       try {
-        rows = await supabaseGet(withLeadPath, {
+        rows = await supabaseGet(withMetaPath, {
           cacheTag: `roster:crew:${location}`,
         });
       } catch (firstErr) {
-        const msg = String(firstErr?.message || firstErr || "").toLowerCase();
-        const missingLeadCol =
-          msg.includes("is_department_lead") ||
-          msg.includes("42703") ||
-          msg.includes("column");
-        if (!missingLeadCol) throw firstErr;
+        const msg1 = String(firstErr?.message || firstErr || "").toLowerCase();
+        const missingWeeklyCols =
+          msg1.includes("weekly_off_day_1") || msg1.includes("weekly_off_day_2");
+        const missingLeadCol = msg1.includes("is_department_lead");
+        const missingColumn = msg1.includes("42703") || msg1.includes("column");
+        if (!missingColumn && !missingWeeklyCols && !missingLeadCol) throw firstErr;
 
-        rows = await supabaseGet(legacyPath, {
-          cacheTag: `roster:crew:${location}`,
-        });
+        try {
+          rows = await supabaseGet(withLeadPath, {
+            cacheTag: `roster:crew:${location}`,
+          });
+        } catch (secondErr) {
+          const msg2 = String(secondErr?.message || secondErr || "").toLowerCase();
+          const missingLeadCol2 =
+            msg2.includes("is_department_lead") ||
+            msg2.includes("42703") ||
+            msg2.includes("column");
+          if (!missingLeadCol2) throw secondErr;
+
+          rows = await supabaseGet(legacyPath, {
+            cacheTag: `roster:crew:${location}`,
+          });
+        }
       }
       setCrew(
         (Array.isArray(rows) ? rows : []).map((r) => ({
           ...r,
           is_department_lead: isTruthyFlag(r?.is_department_lead),
+          weekly_off_day_1: normalizeWeekdayNumber(r?.weekly_off_day_1),
+          weekly_off_day_2: normalizeWeekdayNumber(r?.weekly_off_day_2),
+          weeklyOffDay1: normalizeWeekdayNumber(r?.weekly_off_day_1),
+          weeklyOffDay2: normalizeWeekdayNumber(r?.weekly_off_day_2),
         }))
       );
     } catch (e) {

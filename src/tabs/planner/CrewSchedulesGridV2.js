@@ -109,6 +109,22 @@ const formatHours = (value) => {
   return n.toFixed(2);
 };
 
+const weekdayFromISO = (dateISO) => {
+  if (!dateISO) return null;
+  const d = new Date(`${dateISO}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getDay();
+};
+
+const normalizeWeekdayNumber = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const i = Math.trunc(n);
+  if (i < 0 || i > 6) return null;
+  return i;
+};
+
 export default function CrewSchedulesGridV2({
   S,
   roster,
@@ -228,6 +244,17 @@ export default function CrewSchedulesGridV2({
       }))
       .sort((a, b) => a.dept.localeCompare(b.dept));
   }, [filteredCrew]);
+
+  const crewById = useMemo(() => {
+    const map = new Map();
+    const list = Array.isArray(roster?.crew) ? roster.crew : EMPTY_ARRAY;
+    for (const c of list) {
+      const id = Number(c?.id);
+      if (!Number.isFinite(id)) continue;
+      map.set(id, c);
+    }
+    return map;
+  }, [roster?.crew]);
 
   const showColumnCountForDate = useCallback(
     (dateISO) => {
@@ -413,24 +440,67 @@ export default function CrewSchedulesGridV2({
     return !!(shift?.startTime && shift?.endTime);
   };
 
-  const hasDayDescriptionForDay = (dateISO, crewId) => {
+  const getDayDescriptionForDay = (dateISO, crewId) => {
     const shift = getShift(dateISO, crewId) || {};
-    return !!String(shift?.dayDescription || "").trim();
+    return String(shift?.dayDescription || "").trim();
   };
 
-  const showDayDetailForCrew = (dateISO, crewId) =>
+  const hasDayDescriptionForDay = (dateISO, crewId) => {
+    const dayDescription = getDayDescriptionForDay(dateISO, crewId);
+    return !!dayDescription && dayDescription.toUpperCase() !== "OFF";
+  };
+
+  const hasDayDataForCrew = (dateISO, crewId) =>
     hasCompleteShiftForDay(dateISO, crewId) ||
     hasWorkingShowForDay(dateISO, crewId) ||
     hasDayDescriptionForDay(dateISO, crewId);
 
+  const isWeeklyOffDayForCrew = (dateISO, crewId) => {
+    const weekday = weekdayFromISO(dateISO);
+    if (weekday === null) return false;
+    const crew = crewById.get(Number(crewId));
+    if (!crew) return false;
+    const days = [
+      normalizeWeekdayNumber(crew?.weeklyOffDay1 ?? crew?.weekly_off_day_1),
+      normalizeWeekdayNumber(crew?.weeklyOffDay2 ?? crew?.weekly_off_day_2),
+    ].filter((d) => d !== null);
+    if (!days.length) return false;
+    return days.includes(weekday);
+  };
+
+  const isOffDayForCrew = (dateISO, crewId) => {
+    if (getDayDescriptionForDay(dateISO, crewId).toUpperCase() === "OFF") return true;
+    if (!isWeeklyOffDayForCrew(dateISO, crewId)) return false;
+    return !hasDayDataForCrew(dateISO, crewId);
+  };
+
+  const showDayDetailForCrew = (dateISO, crewId) => {
+    if (getDayDescriptionForDay(dateISO, crewId).toUpperCase() === "OFF") return false;
+    return hasDayDataForCrew(dateISO, crewId);
+  };
+
   const handleAddShiftForDay = (dateISO, crewId) => {
     if (savePaused || typeof setShiftFor !== "function") return;
+    if (isOffDayForCrew(dateISO, crewId)) {
+      setShiftFor(dateISO, crewId, DEFAULT_DAY_START_TIME, DEFAULT_DAY_END_TIME, null);
+      return;
+    }
     setShiftFor(dateISO, crewId, DEFAULT_DAY_START_TIME, DEFAULT_DAY_END_TIME);
   };
 
   const handleDayDescriptionChange = (dateISO, crewId, rawValue) => {
     if (savePaused) return;
     const nextValue = String(rawValue || "").trim();
+
+    if (nextValue === "OFF") {
+      setShiftFor(dateISO, crewId, null, null, "OFF");
+      for (const slot of showSlotsForDate(dateISO)) {
+        if (slot?.kind !== "show") continue;
+        const showId = slot?.show?.id ?? null;
+        setWorkingFor(dateISO, crewId, showId, false);
+      }
+      return;
+    }
 
     if (nextValue === "PTO") {
       setShiftFor(dateISO, crewId, PTO_START_TIME, PTO_END_TIME, "PTO");
@@ -455,19 +525,54 @@ export default function CrewSchedulesGridV2({
     }
   };
 
+  const ui = {
+    shellBg:
+      "linear-gradient(180deg, rgba(14,20,34,0.78) 0%, rgba(10,15,27,0.72) 100%)",
+    shellBorder: "1px solid rgba(173, 191, 224, 0.22)",
+    shellShadow: "0 18px 38px rgba(3, 8, 18, 0.38)",
+    paperBg: "linear-gradient(180deg, #f9fbff 0%, #f4f7fd 100%)",
+    paperBorder: "1px solid #cdd7e8",
+    paperShadow: "0 10px 26px rgba(18, 35, 66, 0.10)",
+    cellBorder: "#d3dbe9",
+    cellBorderSoft: "#e2e7f2",
+    headerBg: "#edf2fb",
+    headerSubBg: "#f5f8ff",
+    deptBg: "linear-gradient(180deg, #e6eeff 0%, #dee9ff 100%)",
+    crewBg: "linear-gradient(180deg, #f9fbff 0%, #f2f6ff 100%)",
+    emptyDayBg: "#f8faff",
+    offDayBg: "linear-gradient(180deg, #e6e9f0 0%, #d8dde8 100%)",
+    shiftBg: "#eef3fb",
+    descriptionBg: "#f5f8ff",
+    hoursBg: "#eef3f9",
+    controlBorder: "#c8d2e5",
+    controlBg: "#ffffff",
+    controlText: "#0f2b57",
+    plusBg: "#f2f7ff",
+    plusBorder: "#a9bddf",
+    plusText: "#23437a",
+    title: "rgba(246,250,255,0.96)",
+    text: "#111a2d",
+    muted: "#5d6880",
+  };
+  const cellBorder = `1px solid ${ui.cellBorder}`;
+
   const shell = {
     ...S.card,
     padding: 14,
     borderRadius: 20,
-    background: "rgba(10,14,22,0.72)",
+    background: ui.shellBg,
+    border: ui.shellBorder,
+    boxShadow: ui.shellShadow,
+    backdropFilter: "blur(3px)",
   };
 
   const paper = {
     borderRadius: 16,
-    border: "1px solid #d8dbe3",
-    background: "#fff",
+    border: ui.paperBorder,
+    background: ui.paperBg,
     padding: 10,
-    color: "#111",
+    color: ui.text,
+    boxShadow: ui.paperShadow,
   };
 
   if (!days.length) {
@@ -493,7 +598,14 @@ export default function CrewSchedulesGridV2({
             marginBottom: 10,
           }}
         >
-          <div style={{ fontSize: 15, fontWeight: 800, color: "rgba(255,255,255,0.92)" }}>
+          <div
+            style={{
+              fontSize: 15,
+              fontWeight: 800,
+              color: ui.title,
+              letterSpacing: "0.02em",
+            }}
+          >
             Week Grid View V2
           </div>
           {savePaused ? <span style={S.badge("warn")}>Editing paused</span> : null}
@@ -505,7 +617,7 @@ export default function CrewSchedulesGridV2({
               <option key={`time-opt-${t}`} value={t} />
             ))}
           </datalist>
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: "auto", borderRadius: 12 }}>
             <table
               style={{
                 width: "100%",
@@ -520,15 +632,17 @@ export default function CrewSchedulesGridV2({
                   <th
                     rowSpan={2}
                     style={{
-                      border: "1px solid #d8dbe3",
-                      background: "#f3f5fb",
-                      padding: "8px 6px",
+                      border: cellBorder,
+                      background: ui.headerBg,
+                      padding: "9px 8px",
                       textTransform: "uppercase",
-                      letterSpacing: "0.04em",
+                      letterSpacing: "0.06em",
+                      color: "#2a3652",
                       width: 220,
                       position: "sticky",
                       left: 0,
                       zIndex: 4,
+                      boxShadow: "2px 0 0 rgba(200, 212, 236, 0.85)",
                     }}
                   >
                     Crew
@@ -538,12 +652,14 @@ export default function CrewSchedulesGridV2({
                       key={`head-day-${dateISO}`}
                       colSpan={colsForDate(dateISO)}
                       style={{
-                        border: "1px solid #d8dbe3",
-                        background: "#f3f5fb",
-                        padding: "6px",
+                        border: cellBorder,
+                        background: ui.headerBg,
+                        padding: "8px 6px",
                         textAlign: "center",
                         fontSize: 11,
                         fontWeight: 900,
+                        color: "#202d47",
+                        letterSpacing: "0.01em",
                       }}
                     >
                       {formatShortDay(dateISO)}
@@ -568,8 +684,8 @@ export default function CrewSchedulesGridV2({
                           style={{
                             border: hideGhostForSingleShow
                               ? "1px solid transparent"
-                              : "1px solid #d8dbe3",
-                            background: hideGhostForSingleShow ? "#fff" : "#f8faff",
+                              : cellBorder,
+                            background: hideGhostForSingleShow ? "#fff" : ui.headerSubBg,
                             padding: "4px",
                             textAlign: "center",
                             verticalAlign: "middle",
@@ -588,14 +704,16 @@ export default function CrewSchedulesGridV2({
                                 disabled={savePaused}
                                 onClick={() => handleEditShow(dateISO, show)}
                                 style={{
-                                  border: "1px solid #d7dbe7",
+                                  border: `1px solid ${ui.controlBorder}`,
                                   borderRadius: 999,
-                                  background: "#fff",
-                                  color: "#1f355c",
+                                  background:
+                                    "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(245,249,255,0.98))",
+                                  color: ui.controlText,
                                   fontWeight: 800,
                                   fontSize: 10,
-                                  padding: "2px 8px",
+                                  padding: "2px 9px",
                                   cursor: savePaused ? "not-allowed" : "pointer",
+                                  boxShadow: "0 1px 0 rgba(255,255,255,0.8) inset",
                                 }}
                                 title="Edit show time"
                               >
@@ -608,7 +726,7 @@ export default function CrewSchedulesGridV2({
                                 style={{
                                   border: "1px solid #f2c7c3",
                                   borderRadius: 999,
-                                  background: "#fdeceb",
+                                  background: "#fff3f1",
                                   color: "#7f1d1d",
                                   fontWeight: 900,
                                   fontSize: 10,
@@ -630,13 +748,13 @@ export default function CrewSchedulesGridV2({
                               disabled={savePaused}
                               onClick={() => handleAddShow(dateISO)}
                               style={{
-                                border: "1px dashed #b7c2dc",
+                                border: `1px dashed ${ui.plusBorder}`,
                                 borderRadius: 999,
-                                background: "#f9fbff",
-                                color: "#1f355c",
+                                background: ui.plusBg,
+                                color: ui.plusText,
                                 fontWeight: 800,
                                 fontSize: 10,
-                                padding: "2px 8px",
+                                padding: "2px 9px",
                                 cursor: savePaused ? "not-allowed" : "pointer",
                               }}
                             >
@@ -657,13 +775,14 @@ export default function CrewSchedulesGridV2({
                       <td
                         colSpan={totalShowCols + 1}
                         style={{
-                          border: "1px solid #d8dbe3",
-                          background: "#e9eefb",
+                          border: cellBorder,
+                          background: ui.deptBg,
                           color: "#0b1b3b",
                           fontWeight: 800,
                           textTransform: "uppercase",
-                          letterSpacing: "0.03em",
-                          padding: "6px",
+                          letterSpacing: "0.05em",
+                          padding: "7px 8px",
+                          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.7)",
                         }}
                       >
                         {group.dept}
@@ -676,32 +795,34 @@ export default function CrewSchedulesGridV2({
                           <td
                             rowSpan={4}
                             style={{
-                              border: "1px solid #d8dbe3",
-                              background: "#f9fbff",
-                              padding: "6px",
+                              border: cellBorder,
+                              background: ui.crewBg,
+                              padding: "10px 10px 8px",
                               position: "sticky",
                               left: 0,
                               zIndex: 2,
                               verticalAlign: "top",
+                              boxShadow: "2px 0 0 rgba(200, 212, 236, 0.85)",
                             }}
                           >
-                            <div style={{ fontSize: 12, fontWeight: 800 }}>
+                            <div style={{ fontSize: 14, fontWeight: 900, color: "#111827" }}>
                               {crew.crew_name || "Crew"}
                             </div>
                             {crew?.is_department_lead ? (
                               <div
                                 style={{
-                                  fontSize: 9,
+                                  fontSize: 10,
                                   fontWeight: 800,
-                                  letterSpacing: "0.02em",
+                                  letterSpacing: "0.05em",
                                   textTransform: "uppercase",
-                                  color: "#3a5e9d",
+                                  color: "#345e9f",
+                                  marginTop: 1,
                                 }}
                               >
                                 Department Lead
                               </div>
                             ) : null}
-                            <div style={{ fontSize: 10, color: "#667" }}>
+                            <div style={{ fontSize: 11, color: ui.muted, marginTop: 1 }}>
                               {prettyDept(crew?.home_department)}
                             </div>
                           </td>
@@ -716,6 +837,7 @@ export default function CrewSchedulesGridV2({
                             ? formatShowTime(shift.endTime)
                             : "";
                           const showDayDetail = showDayDetailForCrew(dateISO, crew.id);
+                          const isOffDay = isOffDayForCrew(dateISO, crew.id);
                           if (!showDayDetail) {
                             return (
                               <td
@@ -723,8 +845,8 @@ export default function CrewSchedulesGridV2({
                                 rowSpan={4}
                                 colSpan={span}
                                 style={{
-                                  border: "1px solid #d8dbe3",
-                                  background: "#fff",
+                                  border: cellBorder,
+                                  background: isOffDay ? ui.offDayBg : ui.emptyDayBg,
                                   padding: "4px",
                                   height: 116,
                                   position: "relative",
@@ -744,9 +866,9 @@ export default function CrewSchedulesGridV2({
                                     width: 16,
                                     height: 16,
                                     borderRadius: 999,
-                                    border: "1px solid #b7c2dc",
-                                    background: "#f9fbff",
-                                    color: "#1f355c",
+                                    border: `1px solid ${ui.plusBorder}`,
+                                    background: ui.plusBg,
+                                    color: ui.plusText,
                                     fontSize: 12,
                                     fontWeight: 900,
                                     lineHeight: "14px",
@@ -758,6 +880,29 @@ export default function CrewSchedulesGridV2({
                                 >
                                   +
                                 </button>
+                                {isOffDay ? (
+                                  <div
+                                    style={{
+                                      position: "absolute",
+                                      inset: 0,
+                                      display: "grid",
+                                      placeItems: "center",
+                                      pointerEvents: "none",
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        fontSize: 12,
+                                        fontWeight: 900,
+                                        letterSpacing: "0.1em",
+                                        textTransform: "uppercase",
+                                        color: "#5f687a",
+                                      }}
+                                    >
+                                      OFF
+                                    </span>
+                                  </div>
+                                ) : null}
                               </td>
                             );
                           }
@@ -767,10 +912,10 @@ export default function CrewSchedulesGridV2({
                               key={`shift-${crew.id}-${dateISO}`}
                               colSpan={span}
                               style={{
-                                border: "1px solid #d8dbe3",
-                                background: "#f5f6fa",
-                                padding: "4px",
-                                height: 30,
+                                border: cellBorder,
+                                background: ui.shiftBg,
+                                padding: "5px 6px",
+                                height: 34,
                               }}
                             >
                               <div
@@ -831,14 +976,17 @@ export default function CrewSchedulesGridV2({
                                   }}
                                   placeholder="IN"
                                   style={{
-                                    height: 22,
+                                    height: 24,
                                     minWidth: 0,
                                     borderRadius: 999,
-                                    border: "1px solid #d7dbe7",
-                                    background: "#fff",
-                                    fontSize: 10,
+                                    border: `1px solid ${ui.controlBorder}`,
+                                    background:
+                                      "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,255,0.98))",
+                                    color: "#1a2740",
+                                    fontSize: 11,
                                     fontWeight: 700,
-                                    padding: "0 6px",
+                                    padding: "0 8px",
+                                    boxShadow: "0 1px 0 rgba(255,255,255,0.85) inset",
                                   }}
                                 />
 
@@ -892,14 +1040,17 @@ export default function CrewSchedulesGridV2({
                                   }}
                                   placeholder="OUT"
                                   style={{
-                                    height: 22,
+                                    height: 24,
                                     minWidth: 0,
                                     borderRadius: 999,
-                                    border: "1px solid #d7dbe7",
-                                    background: "#fff",
-                                    fontSize: 10,
+                                    border: `1px solid ${ui.controlBorder}`,
+                                    background:
+                                      "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,255,0.98))",
+                                    color: "#1a2740",
+                                    fontSize: 11,
                                     fontWeight: 700,
-                                    padding: "0 6px",
+                                    padding: "0 8px",
+                                    boxShadow: "0 1px 0 rgba(255,255,255,0.85) inset",
                                   }}
                                 />
 
@@ -914,7 +1065,7 @@ export default function CrewSchedulesGridV2({
                                     height: 22,
                                     borderRadius: 999,
                                     border: "1px solid #f2c7c3",
-                                    background: "#fdeceb",
+                                    background: "#fff2f1",
                                     color: "#7f1d1d",
                                     fontSize: 12,
                                     fontWeight: 900,
@@ -949,8 +1100,9 @@ export default function CrewSchedulesGridV2({
                                     style={{
                                       border: hideGhostForSingleShow
                                         ? "1px solid transparent"
-                                        : "1px dashed #e3e7f2",
-                                      background: hideGhostForSingleShow ? "#fff" : "#fbfcff",
+                                        : `1px dashed ${ui.cellBorderSoft}`,
+                                      background:
+                                        hideGhostForSingleShow ? ui.emptyDayBg : "#f8fbff",
                                       padding: "4px",
                                       height: 32,
                                     }}
@@ -977,11 +1129,11 @@ export default function CrewSchedulesGridV2({
                                     border:
                                       working && assignmentValue !== "none" && trackGlow
                                         ? `1px solid ${trackGlow.border}`
-                                        : "1px solid #d8dbe3",
+                                        : cellBorder,
                                     background: !working
-                                      ? "#fff"
+                                      ? ui.emptyDayBg
                                       : assignmentValue === "none"
-                                      ? "#fdeceb"
+                                      ? "#fff3f1"
                                       : trackGlow
                                       ? `linear-gradient(180deg, ${trackGlow.bg} 0%, rgba(255,255,255,0.92) 100%)`
                                       : "#e7f6e9",
@@ -1004,25 +1156,27 @@ export default function CrewSchedulesGridV2({
                                         }
                                         style={{
                                           width: "100%",
-                                          height: 24,
+                                          height: "100%",
+                                          minHeight: 24,
                                           minWidth: 0,
-                                          borderRadius: 999,
-                                          border:
-                                            assignmentValue !== "none" && trackGlow
-                                              ? `1px solid ${trackGlow.border}`
-                                              : "1px solid #d7dbe7",
-                                          background: "rgba(255,255,255,0.9)",
+                                          borderRadius: 0,
+                                          border: "none",
+                                          background: "transparent",
                                           color:
                                             assignmentValue === "none"
                                               ? "#7f1d1d"
                                               : "#0d4f20",
-                                          fontSize: 10,
+                                          fontSize: 11,
                                           fontWeight: 800,
-                                          padding: "0 8px",
-                                          boxShadow:
-                                            assignmentValue !== "none" && trackGlow
-                                              ? `0 0 0 1px ${trackGlow.inset} inset`
-                                              : "none",
+                                          padding: "0 18px 0 8px",
+                                          boxShadow: "none",
+                                          appearance: "none",
+                                          WebkitAppearance: "none",
+                                          MozAppearance: "none",
+                                          textAlign: "center",
+                                          textAlignLast: "center",
+                                          cursor: savePaused ? "not-allowed" : "pointer",
+                                          outline: "none",
                                         }}
                                       >
                                         <option value="none">No track</option>
@@ -1047,7 +1201,7 @@ export default function CrewSchedulesGridV2({
                                           height: 14,
                                           borderRadius: 999,
                                           border: "1px solid #f2c7c3",
-                                          background: "#fdeceb",
+                                          background: "#fff2f1",
                                           color: "#7f1d1d",
                                           fontSize: 10,
                                           fontWeight: 900,
@@ -1075,9 +1229,9 @@ export default function CrewSchedulesGridV2({
                                         width: 14,
                                         height: 14,
                                         borderRadius: 999,
-                                        border: "1px solid #b7c2dc",
-                                        background: "#f9fbff",
-                                        color: "#1f355c",
+                                        border: `1px solid ${ui.plusBorder}`,
+                                        background: ui.plusBg,
+                                        color: ui.plusText,
                                         fontSize: 10,
                                         fontWeight: 900,
                                         lineHeight: "12px",
@@ -1109,10 +1263,10 @@ export default function CrewSchedulesGridV2({
                                 key={`desc-${crew.id}-${dateISO}`}
                                 colSpan={span}
                                 style={{
-                                  border: "1px solid #d8dbe3",
-                                  background: "#f8f9fc",
-                                  padding: "4px",
-                                  height: 28,
+                                  border: cellBorder,
+                                  background: ui.descriptionBg,
+                                  padding: "5px 6px",
+                                  height: 30,
                                 }}
                               >
                                 <select
@@ -1127,14 +1281,16 @@ export default function CrewSchedulesGridV2({
                                   }
                                   style={{
                                     width: "100%",
-                                    height: 20,
+                                    height: 24,
                                     minWidth: 0,
                                     borderRadius: 999,
-                                    border: "1px solid #d7dbe7",
-                                    background: "#fff",
-                                    fontSize: 10,
+                                    border: `1px solid ${ui.controlBorder}`,
+                                    background:
+                                      "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,255,0.98))",
+                                    fontSize: 11,
                                     fontWeight: 700,
-                                    padding: "0 8px",
+                                    color: "#1a2740",
+                                    padding: "0 10px",
                                   }}
                                 >
                                   <option value="">Select day description</option>
@@ -1201,9 +1357,9 @@ export default function CrewSchedulesGridV2({
                                 key={`hours-${crew.id}-${dateISO}`}
                                 colSpan={span}
                                 style={{
-                                  border: "1px solid #d8dbe3",
-                                  background: "#f6f7fb",
-                                  padding: "2px 6px 4px",
+                                  border: cellBorder,
+                                  background: ui.hoursBg,
+                                  padding: "4px 8px 6px",
                                   minHeight: 28,
                                 }}
                               >
@@ -1215,7 +1371,7 @@ export default function CrewSchedulesGridV2({
                                       : "1fr",
                                     gap: 0,
                                     alignItems: "center",
-                                    fontSize: 10,
+                                    fontSize: 11,
                                     color: "#4b556e",
                                   }}
                                 >
@@ -1235,7 +1391,7 @@ export default function CrewSchedulesGridV2({
                                       <div
                                         key={`${crew.id}-${dateISO}-${item.key}`}
                                         style={{
-                                          padding: "0 6px",
+                                          padding: "0 8px",
                                           display: "flex",
                                           alignItems: "center",
                                           justifyContent,
@@ -1244,7 +1400,7 @@ export default function CrewSchedulesGridV2({
                                           borderLeft:
                                             idx === 0
                                               ? "none"
-                                              : "1px solid rgba(31,53,92,0.14)",
+                                              : "1px solid rgba(31,53,92,0.12)",
                                         }}
                                       >
                                         <span
@@ -1280,14 +1436,14 @@ export default function CrewSchedulesGridV2({
                                 {hasPaidTotal || hasWorkedTotal ? (
                                   <div
                                     style={{
-                                      marginTop: 2,
-                                      paddingTop: 2,
-                                      borderTop: "1px solid rgba(31,53,92,0.10)",
+                                      marginTop: 4,
+                                      paddingTop: 4,
+                                      borderTop: "1px solid rgba(31,53,92,0.12)",
                                       display: "grid",
                                       gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
                                       alignItems: "center",
                                       gap: 8,
-                                      fontSize: 10,
+                                      fontSize: 11,
                                       color: "#5b6479",
                                     }}
                                   >

@@ -202,6 +202,10 @@ export default function App() {
     setEditCrewStatus,
     editCrewLead,
     setEditCrewLead,
+    editCrewOffDay1,
+    setEditCrewOffDay1,
+    editCrewOffDay2,
+    setEditCrewOffDay2,
     editCrewSaving,
     setEditCrewSaving,
 
@@ -1044,6 +1048,16 @@ export default function App() {
     setEditCrewDept(c.dept || "");
     setEditCrewStatus(c.active ? "Active" : "Not Active");
     setEditCrewLead(!!c.isDepartmentLead);
+    setEditCrewOffDay1(
+      c.weeklyOffDay1 == null || !Number.isFinite(Number(c.weeklyOffDay1))
+        ? ""
+        : String(Number(c.weeklyOffDay1))
+    );
+    setEditCrewOffDay2(
+      c.weeklyOffDay2 == null || !Number.isFinite(Number(c.weeklyOffDay2))
+        ? ""
+        : String(Number(c.weeklyOffDay2))
+    );
   }
 
   function cancelEditCrew() {
@@ -1052,6 +1066,8 @@ export default function App() {
     setEditCrewDept("");
     setEditCrewStatus("Active");
     setEditCrewLead(false);
+    setEditCrewOffDay1("");
+    setEditCrewOffDay2("");
   }
 
   async function saveEditCrew(c: Crew) {
@@ -1062,6 +1078,41 @@ export default function App() {
     }
     const newDept = (editCrewDept || "").trim();
     const newStatus = editCrewStatus === "Not Active" ? "Not Active" : "Active";
+    const parsedOffDay1 =
+      editCrewOffDay1 === ""
+        ? null
+        : Number.isFinite(Number(editCrewOffDay1))
+        ? Number(editCrewOffDay1)
+        : null;
+    const parsedOffDay2 =
+      editCrewOffDay2 === ""
+        ? null
+        : Number.isFinite(Number(editCrewOffDay2))
+        ? Number(editCrewOffDay2)
+        : null;
+
+    if (
+      parsedOffDay1 != null &&
+      (parsedOffDay1 < 0 || parsedOffDay1 > 6)
+    ) {
+      alert("Day Off 1 must be empty or a valid weekday.");
+      return;
+    }
+    if (
+      parsedOffDay2 != null &&
+      (parsedOffDay2 < 0 || parsedOffDay2 > 6)
+    ) {
+      alert("Day Off 2 must be empty or a valid weekday.");
+      return;
+    }
+    if (
+      parsedOffDay1 != null &&
+      parsedOffDay2 != null &&
+      parsedOffDay1 === parsedOffDay2
+    ) {
+      alert("Weekly Day Off 1 and 2 must be different days.");
+      return;
+    }
 
     setEditCrewSaving(true);
     try {
@@ -1071,20 +1122,31 @@ export default function App() {
           home_department: newDept,
           status: newStatus,
           is_department_lead: !!editCrewLead,
+          weekly_off_day_1: parsedOffDay1,
+          weekly_off_day_2: parsedOffDay2,
         });
       } catch (firstErr) {
         const msg = getErrorMessage(firstErr).toLowerCase();
-        const missingLeadCol =
-          msg.includes("is_department_lead") ||
-          msg.includes("42703") ||
-          msg.includes("column");
-        if (!missingLeadCol) throw firstErr;
+        const missingWeeklyCols =
+          msg.includes("weekly_off_day_1") || msg.includes("weekly_off_day_2");
+        const missingLeadCol = msg.includes("is_department_lead");
+        const missingColumn = msg.includes("42703") || msg.includes("column");
+        if (!missingColumn && !missingLeadCol && !missingWeeklyCols) throw firstErr;
 
-        await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, {
-          crew_name: newName,
-          home_department: newDept,
-          status: newStatus,
-        });
+        if (missingWeeklyCols && !missingLeadCol) {
+          await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, {
+            crew_name: newName,
+            home_department: newDept,
+            status: newStatus,
+            is_department_lead: !!editCrewLead,
+          });
+        } else {
+          await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, {
+            crew_name: newName,
+            home_department: newDept,
+            status: newStatus,
+          });
+        }
       }
 
       invalidateMany([
@@ -1924,6 +1986,10 @@ export default function App() {
               setEditCrewStatus={setEditCrewStatus}
               editCrewLead={editCrewLead}
               setEditCrewLead={setEditCrewLead}
+              editCrewOffDay1={editCrewOffDay1}
+              setEditCrewOffDay1={setEditCrewOffDay1}
+              editCrewOffDay2={editCrewOffDay2}
+              setEditCrewOffDay2={setEditCrewOffDay2}
               editCrewSaving={editCrewSaving}
               openAddCrew={openAddCrew}
               loadCrew={loadCrew}
