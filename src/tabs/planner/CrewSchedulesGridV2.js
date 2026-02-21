@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import { normalizeHex, trackGlowFromHex } from "../../utils/colors";
 
 import { prettyDept } from "../../utils/strings";
@@ -28,6 +28,7 @@ const DAY_DESCRIPTION_OPTIONS = [
   "Rehearsal",
   "Shows",
 ];
+const TIME_DATALIST_ID = "crew-grid-v2-time-options";
 
 const parseTimeInput = (value) => {
   if (!value) return null;
@@ -69,6 +70,27 @@ const formatShowTime = (value) => {
   return `${hour}:${String(minute).padStart(2, "0")} ${mer}`;
 };
 
+const minutesFromTime = (value) => {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return null;
+  const hh = Number(match[1]);
+  const mm = Number(match[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return hh * 60 + mm;
+};
+
+const shiftDurationHours = (startTime, endTime) => {
+  const start = minutesFromTime(startTime);
+  const end = minutesFromTime(endTime);
+  if (start === null || end === null) return null;
+  let diff = end - start;
+  if (diff < 0) diff += 24 * 60;
+  if (diff === 0) diff = 24 * 60;
+  return diff / 60;
+};
+
 const formatShortDay = (dateISO) => {
   if (!dateISO) return "";
   const d = new Date(`${dateISO}T00:00:00`);
@@ -78,51 +100,6 @@ const formatShortDay = (dateISO) => {
     month: "numeric",
     day: "numeric",
   });
-};
-
-const minutesFromTime = (value) => {
-  const match = String(value || "").match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-  if (!match) return null;
-  const hh = Number(match[1]);
-  const mm = Number(match[2]);
-  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
-  return hh * 60 + mm;
-};
-
-const calcRegularHours = (startTime, endTime) => {
-  const startMin = minutesFromTime(startTime);
-  const endMin = minutesFromTime(endTime);
-  if (startMin === null || endMin === null) return null;
-  let diff = endMin - startMin;
-  if (diff < 0) diff += 24 * 60;
-  if (diff === 0) diff = 24 * 60;
-  return diff / 60;
-};
-
-const splitHours = (totalHours, isDepartmentLead) => {
-  if (totalHours === null || totalHours === undefined) {
-    return {
-      lead: null,
-      hours: null,
-      regularOvertime: null,
-      leadOvertime: null,
-    };
-  }
-  const n = Number(totalHours);
-  if (!Number.isFinite(n)) {
-    return {
-      lead: null,
-      hours: null,
-      regularOvertime: null,
-      leadOvertime: null,
-    };
-  }
-  const lead = isDepartmentLead ? Math.min(n, 8) : 0;
-  const hours = isDepartmentLead ? 0 : Math.min(n, 8);
-  const regularOvertime = isDepartmentLead ? 0 : Math.max(0, n - 8);
-  const leadOvertime = isDepartmentLead ? Math.max(0, n - 8) : 0;
-  return { lead, hours, regularOvertime, leadOvertime };
 };
 
 const formatHours = (value) => {
@@ -139,6 +116,7 @@ export default function CrewSchedulesGridV2({
   tracks = [],
 }) {
   const savePaused = !!roster?.savePaused;
+  const [timeDraftMap, setTimeDraftMap] = useState(() => new Map());
 
   const days = Array.isArray(roster?.dateList) ? roster.dateList : EMPTY_ARRAY;
   const getShowsForDate = useMemo(
@@ -307,6 +285,60 @@ export default function CrewSchedulesGridV2({
     );
   };
 
+  const timeDraftKey = (dateISO, crewId, field) =>
+    `${dateISO}|${Number(crewId)}|${field}`;
+  const isKnownTimeOption = (value) =>
+    TIME_OPTIONS.some(
+      (opt) => opt.toLowerCase() === String(value || "").trim().toLowerCase()
+    );
+
+  const getTimeInputValue = (dateISO, crewId, field, committedValue) => {
+    const key = timeDraftKey(dateISO, crewId, field);
+    return timeDraftMap.has(key) ? timeDraftMap.get(key) : committedValue;
+  };
+
+  const setTimeInputDraft = (dateISO, crewId, field, value) => {
+    const key = timeDraftKey(dateISO, crewId, field);
+    setTimeDraftMap((prev) => {
+      const next = new Map(prev);
+      next.set(key, String(value || ""));
+      return next;
+    });
+  };
+
+  const clearTimeInputDraft = (dateISO, crewId, field) => {
+    const key = timeDraftKey(dateISO, crewId, field);
+    setTimeDraftMap((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Map(prev);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  const commitTimeInput = (dateISO, crewId, field, rawValue) => {
+    const shift = getShift(dateISO, crewId) || {};
+    const startCommitted = shift?.startTime ? formatShowTime(shift.startTime) : "";
+    const endCommitted = shift?.endTime ? formatShowTime(shift.endTime) : "";
+
+    const text = String(rawValue || "").trim();
+    const parsed = text ? parseTimeInput(text) : null;
+    const normalized = !text
+      ? ""
+      : parsed
+      ? formatShowTime(parsed)
+      : field === "start"
+      ? startCommitted
+      : endCommitted;
+
+    if (field === "start") {
+      handleShiftChange(dateISO, crewId, normalized, endCommitted);
+    } else {
+      handleShiftChange(dateISO, crewId, startCommitted, normalized);
+    }
+    clearTimeInputDraft(dateISO, crewId, field);
+  };
+
   const applyShowState = (dateISO, crewId, showId, value) => {
     if (savePaused) return;
 
@@ -468,6 +500,11 @@ export default function CrewSchedulesGridV2({
         </div>
 
         <div style={paper}>
+          <datalist id={TIME_DATALIST_ID}>
+            {TIME_OPTIONS.map((t) => (
+              <option key={`time-opt-${t}`} value={t} />
+            ))}
+          </datalist>
           <div style={{ overflowX: "auto" }}>
             <table
               style={{
@@ -744,47 +781,55 @@ export default function CrewSchedulesGridV2({
                                   alignItems: "center",
                                 }}
                               >
-                                <select
+                                <input
+                                  type="text"
+                                  list={TIME_DATALIST_ID}
                                   disabled={savePaused}
-                                  value={startLabel}
+                                  value={getTimeInputValue(
+                                    dateISO,
+                                    crew.id,
+                                    "start",
+                                    startLabel
+                                  )}
                                   onChange={(e) =>
-                                    handleShiftChange(
-                                      dateISO,
-                                      crew.id,
-                                      e.target.value,
-                                      endLabel
-                                    )
+                                    (() => {
+                                      const raw = e.target.value;
+                                      setTimeInputDraft(
+                                        dateISO,
+                                        crew.id,
+                                        "start",
+                                        raw
+                                      );
+                                      if (isKnownTimeOption(raw)) {
+                                        commitTimeInput(dateISO, crew.id, "start", raw);
+                                      }
+                                    })()
                                   }
-                                  style={{
-                                    height: 22,
-                                    minWidth: 0,
-                                    borderRadius: 999,
-                                    border: "1px solid #d7dbe7",
-                                    background: "#fff",
-                                    fontSize: 10,
-                                    fontWeight: 700,
-                                    padding: "0 6px",
-                                  }}
-                                >
-                                  <option value="">IN</option>
-                                  {TIME_OPTIONS.map((t) => (
-                                    <option key={`in-${dateISO}-${crew.id}-${t}`} value={t}>
-                                      {t}
-                                    </option>
-                                  ))}
-                                </select>
-
-                                <select
-                                  disabled={savePaused}
-                                  value={endLabel}
-                                  onChange={(e) =>
-                                    handleShiftChange(
+                                  onBlur={(e) =>
+                                    commitTimeInput(
                                       dateISO,
                                       crew.id,
-                                      startLabel,
+                                      "start",
                                       e.target.value
                                     )
                                   }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      commitTimeInput(
+                                        dateISO,
+                                        crew.id,
+                                        "start",
+                                        e.currentTarget.value
+                                      );
+                                      e.currentTarget.blur();
+                                    } else if (e.key === "Escape") {
+                                      e.preventDefault();
+                                      clearTimeInputDraft(dateISO, crew.id, "start");
+                                      e.currentTarget.blur();
+                                    }
+                                  }}
+                                  placeholder="IN"
                                   style={{
                                     height: 22,
                                     minWidth: 0,
@@ -795,14 +840,68 @@ export default function CrewSchedulesGridV2({
                                     fontWeight: 700,
                                     padding: "0 6px",
                                   }}
-                                >
-                                  <option value="">OUT</option>
-                                  {TIME_OPTIONS.map((t) => (
-                                    <option key={`out-${dateISO}-${crew.id}-${t}`} value={t}>
-                                      {t}
-                                    </option>
-                                  ))}
-                                </select>
+                                />
+
+                                <input
+                                  type="text"
+                                  list={TIME_DATALIST_ID}
+                                  disabled={savePaused}
+                                  value={getTimeInputValue(
+                                    dateISO,
+                                    crew.id,
+                                    "end",
+                                    endLabel
+                                  )}
+                                  onChange={(e) =>
+                                    (() => {
+                                      const raw = e.target.value;
+                                      setTimeInputDraft(
+                                        dateISO,
+                                        crew.id,
+                                        "end",
+                                        raw
+                                      );
+                                      if (isKnownTimeOption(raw)) {
+                                        commitTimeInput(dateISO, crew.id, "end", raw);
+                                      }
+                                    })()
+                                  }
+                                  onBlur={(e) =>
+                                    commitTimeInput(
+                                      dateISO,
+                                      crew.id,
+                                      "end",
+                                      e.target.value
+                                    )
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      commitTimeInput(
+                                        dateISO,
+                                        crew.id,
+                                        "end",
+                                        e.currentTarget.value
+                                      );
+                                      e.currentTarget.blur();
+                                    } else if (e.key === "Escape") {
+                                      e.preventDefault();
+                                      clearTimeInputDraft(dateISO, crew.id, "end");
+                                      e.currentTarget.blur();
+                                    }
+                                  }}
+                                  placeholder="OUT"
+                                  style={{
+                                    height: 22,
+                                    minWidth: 0,
+                                    borderRadius: 999,
+                                    border: "1px solid #d7dbe7",
+                                    background: "#fff",
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    padding: "0 6px",
+                                  }}
+                                />
 
                                 <button
                                   type="button"
@@ -1058,34 +1157,39 @@ export default function CrewSchedulesGridV2({
                             if (!showDayDetailForCrew(dateISO, crew.id)) return [];
                             const span = colsForDate(dateISO);
                             const shift = getShift(dateISO, crew.id) || {};
-                            const totalHours = calcRegularHours(
+                            const dbHours = getDayHours(dateISO, crew.id);
+                            const paidTotal = Number(dbHours?.totalHours);
+                            const hasPaidTotal = Number.isFinite(paidTotal) && paidTotal > 0;
+                            const workedTotal = shiftDurationHours(
                               shift?.startTime || null,
                               shift?.endTime || null
                             );
-                            const fallbackHours = splitHours(
-                              totalHours,
-                              !!crew?.is_department_lead
-                            );
-                            const dbHours = getDayHours(dateISO, crew.id);
-                            const lead = dbHours?.leadHours ?? fallbackHours.lead;
-                            const hours = dbHours?.regularHours ?? fallbackHours.hours;
+                            const hasWorkedTotal =
+                              Number.isFinite(workedTotal) && workedTotal > 0;
+                            const unpaidHoursRaw =
+                              Number.isFinite(workedTotal) && hasPaidTotal
+                                ? Math.max(0, workedTotal - paidTotal)
+                                : null;
+                            const unpaidHours =
+                              Number.isFinite(unpaidHoursRaw)
+                                ? Math.round(unpaidHoursRaw * 100) / 100
+                                : null;
+                            const lead = dbHours?.leadHours ?? null;
+                            const hours = dbHours?.regularHours ?? null;
                             const regularOvertime =
-                              dbHours?.regularOvertimeHours ??
-                              fallbackHours.regularOvertime;
-                            const leadOvertime =
-                              dbHours?.leadOvertimeHours ??
-                              fallbackHours.leadOvertime;
+                              dbHours?.regularOvertimeHours ?? null;
+                            const leadOvertime = dbHours?.leadOvertimeHours ?? null;
                             const visibleHourItems = [
-                              { key: "lead", label: "Lead Hours", value: lead },
+                              { key: "lead", label: "Lead", value: lead },
                               { key: "hours", label: "Hours", value: hours },
                               {
                                 key: "r-ot",
-                                label: "(R) Overtime",
+                                label: "R-OT",
                                 value: regularOvertime,
                               },
                               {
                                 key: "l-ot",
-                                label: "(L) Overtime",
+                                label: "L-OT",
                                 value: leadOvertime,
                               },
                             ].filter((item) => {
@@ -1099,8 +1203,8 @@ export default function CrewSchedulesGridV2({
                                 style={{
                                   border: "1px solid #d8dbe3",
                                   background: "#f6f7fb",
-                                  padding: "2px 6px",
-                                  height: 28,
+                                  padding: "2px 6px 4px",
+                                  minHeight: 28,
                                 }}
                               >
                                 <div
@@ -1119,27 +1223,28 @@ export default function CrewSchedulesGridV2({
                                     const n = Number(item.value);
                                     const isOvertime = item.key === "r-ot" || item.key === "l-ot";
                                     const isHot = isOvertime && n > 0;
-                                    const textAlign =
+                                    const justifyContent =
                                       visibleHourItems.length === 1
                                         ? "center"
                                         : idx === 0
-                                        ? "left"
+                                        ? "flex-start"
                                         : idx === visibleHourItems.length - 1
-                                        ? "right"
+                                        ? "flex-end"
                                         : "center";
                                     return (
                                       <div
                                         key={`${crew.id}-${dateISO}-${item.key}`}
                                         style={{
-                                          padding: "0 8px",
-                                          textAlign,
+                                          padding: "0 6px",
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent,
+                                          gap: 4,
+                                          minWidth: 0,
                                           borderLeft:
                                             idx === 0
                                               ? "none"
                                               : "1px solid rgba(31,53,92,0.14)",
-                                          whiteSpace: "nowrap",
-                                          overflow: "hidden",
-                                          textOverflow: "ellipsis",
                                         }}
                                       >
                                         <span
@@ -1148,6 +1253,10 @@ export default function CrewSchedulesGridV2({
                                             color: isHot
                                               ? "#9a3412"
                                               : "#5b6479",
+                                            minWidth: 0,
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis",
+                                            whiteSpace: "nowrap",
                                           }}
                                         >
                                           {item.label}:
@@ -1158,6 +1267,8 @@ export default function CrewSchedulesGridV2({
                                             color: isHot
                                               ? "#9a3412"
                                               : "#1f355c",
+                                            flexShrink: 0,
+                                            whiteSpace: "nowrap",
                                           }}
                                         >
                                           {formatHours(item.value)}
@@ -1166,6 +1277,58 @@ export default function CrewSchedulesGridV2({
                                     );
                                   })}
                                 </div>
+                                {hasPaidTotal || hasWorkedTotal ? (
+                                  <div
+                                    style={{
+                                      marginTop: 2,
+                                      paddingTop: 2,
+                                      borderTop: "1px solid rgba(31,53,92,0.10)",
+                                      display: "grid",
+                                      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                                      alignItems: "center",
+                                      gap: 8,
+                                      fontSize: 10,
+                                      color: "#5b6479",
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        fontWeight: 800,
+                                        whiteSpace: "nowrap",
+                                        textAlign: "left",
+                                      }}
+                                    >
+                                      Total Hours:{" "}
+                                      <span style={{ fontWeight: 900, color: "#1f355c" }}>
+                                        {formatHours(hasWorkedTotal ? workedTotal : null)}
+                                      </span>
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontWeight: 800,
+                                        whiteSpace: "nowrap",
+                                        textAlign: "center",
+                                      }}
+                                    >
+                                      Paid Total:{" "}
+                                      <span style={{ fontWeight: 900, color: "#1f355c" }}>
+                                        {formatHours(hasPaidTotal ? paidTotal : null)}
+                                      </span>
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontWeight: 800,
+                                        whiteSpace: "nowrap",
+                                        textAlign: "right",
+                                      }}
+                                    >
+                                      Unpaid:{" "}
+                                      <span style={{ fontWeight: 900, color: "#374151" }}>
+                                        {formatHours(unpaidHours)}
+                                      </span>
+                                    </span>
+                                  </div>
+                                ) : null}
                               </td>,
                             ];
                           })}

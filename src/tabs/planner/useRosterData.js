@@ -444,6 +444,49 @@ export default function useRosterData({
     [dayHoursMap]
   );
 
+  const refreshDayHoursForDate = useCallback(
+    async (dateISO, opts = {}) => {
+      if (!canRun) return;
+      const d = safeISODate(dateISO);
+      if (!d) return;
+      if (typeof supabaseGet !== "function") return;
+
+      try {
+        const hoursPath =
+          "/rest/v1/v_crew_day_hours" +
+          `?select=location_id,work_date,crew_id,total_hours,lead_hours,hours,regular_overtime_hours,lead_overtime_hours` +
+          `&location_id=eq.${Number(location)}` +
+          `&work_date=eq.${d}`;
+        const rows = await supabaseGet(hoursPath, {
+          cacheTag: `roster:dayhours:${location}:${d}`,
+          ...opts,
+        });
+        setDayHoursMap((prev) => {
+          const next = new Map(prev);
+          for (const key of Array.from(next.keys())) {
+            if (String(key).startsWith(`${d}|`)) next.delete(key);
+          }
+          for (const row of Array.isArray(rows) ? rows : []) {
+            const rDate = safeISODate(row?.work_date);
+            const rCrewId = Number(row?.crew_id);
+            if (!rDate || rDate !== d || !Number.isFinite(rCrewId)) continue;
+            next.set(shiftKey(d, rCrewId), {
+              totalHours: normalizeHourNumber(row.total_hours),
+              leadHours: normalizeHourNumber(row.lead_hours),
+              regularHours: normalizeHourNumber(row.hours),
+              regularOvertimeHours: normalizeHourNumber(row.regular_overtime_hours),
+              leadOvertimeHours: normalizeHourNumber(row.lead_overtime_hours),
+            });
+          }
+          return next;
+        });
+      } catch (_e) {
+        // Keep existing values; loadShiftsForRange will eventually refresh this.
+      }
+    },
+    [canRun, location, supabaseGet]
+  );
+
   const setShiftFor = useCallback(
     async (dateISO, crewId, startTime, endTime, dayDescription = undefined) => {
       if (!location || typeof supabasePost !== "function") return;
@@ -473,6 +516,11 @@ export default function useRosterData({
         }
         return m;
       });
+      setDayHoursMap((prev) => {
+        const next = new Map(prev);
+        next.delete(shiftKey(d, cid));
+        return next;
+      });
 
       setShiftError("");
       try {
@@ -484,6 +532,7 @@ export default function useRosterData({
               )}&work_date=eq.${d}&crew_id=eq.${cid}`
             );
           }
+          await refreshDayHoursForDate(d, { bypassCache: true });
           return;
         }
         await supabasePost(
@@ -500,11 +549,12 @@ export default function useRosterData({
           ],
           { headers: { Prefer: "resolution=merge-duplicates,return=minimal" } }
         );
+        await refreshDayHoursForDate(d, { bypassCache: true });
       } catch (e) {
         setShiftError(String(e?.message || e));
       }
     },
-    [location, supabasePost, supabaseDelete, getShift]
+    [location, supabasePost, supabaseDelete, getShift, refreshDayHoursForDate]
   );
 
   const setDayDescriptionFor = useCallback(
