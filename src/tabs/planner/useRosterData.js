@@ -36,6 +36,17 @@ function isTruthyFlag(value) {
   return value === true || value === "true" || value === "t" || value === 1;
 }
 
+function normalizeEmploymentType(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "Full-Time";
+  if (normalized === "on-call" || normalized === "on call" || normalized === "oncall") {
+    return "On-Call";
+  }
+  return "Full-Time";
+}
+
 function normalizeDayDescription(value) {
   const s = String(value || "").trim();
   return s ? s : null;
@@ -63,6 +74,42 @@ function keyOf(dateISO, showId, crewId) {
 
 function shiftKey(dateISO, crewId) {
   return `${dateISO}|${Number(crewId)}`;
+}
+
+function weekKey(weekStartISO, crewId) {
+  return `${weekStartISO}|${Number(crewId)}`;
+}
+
+const MAX_HISTORY_ENTRIES = 200;
+const WC_SHOWS_MINUTES_THRESHOLD = 225; // 3.75 hours
+const AUTO_SHOW_DAY_DESCRIPTIONS = new Set(["Shows", "WC/Shows"]);
+
+function sameAssignmentState(a, b) {
+  return (
+    !!a?.isWorking === !!b?.isWorking &&
+    normalizeTrackId(a?.trackId) === normalizeTrackId(b?.trackId)
+  );
+}
+
+function sameShiftState(a, b) {
+  return (
+    (a?.startTime || null) === (b?.startTime || null) &&
+    (a?.endTime || null) === (b?.endTime || null) &&
+    normalizeDayDescription(a?.dayDescription) ===
+      normalizeDayDescription(b?.dayDescription)
+  );
+}
+
+function parseSqlClockMinutes(value) {
+  const match = String(value || "")
+    .trim()
+    .match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
 }
 
 export default function useRosterData({
@@ -99,6 +146,7 @@ export default function useRosterData({
   // Shift times (per crew/day)
   const [shiftMap, setShiftMap] = useState(() => new Map());
   const [dayHoursMap, setDayHoursMap] = useState(() => new Map());
+  const [weekHoursMap, setWeekHoursMap] = useState(() => new Map());
   const [shiftLoading, setShiftLoading] = useState(false);
   const [shiftError, setShiftError] = useState("");
 
@@ -148,11 +196,44 @@ export default function useRosterData({
   const dirtyRef = useRef(new Map()); // key -> { location_id, work_date, crew_id, show_id, is_working, track_id }
   const saveTimerRef = useRef(null);
   const pendingAutoShowsRef = useRef(new Set());
+  const autoManagedShowDescriptionsRef = useRef(new Set());
+  const undoStackRef = useRef([]);
+  const redoStackRef = useRef([]);
+  const historyMutedRef = useRef(false);
+  const historyApplyingRef = useRef(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [historyApplying, setHistoryApplying] = useState(false);
 
   const canRun =
     !!location &&
     typeof supabaseGet === "function" &&
     typeof supabasePost === "function";
+
+  const syncHistoryState = useCallback(() => {
+    setHistoryVersion((n) => n + 1);
+  }, []);
+
+  const clearHistory = useCallback(() => {
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    syncHistoryState();
+  }, [syncHistoryState]);
+
+  const pushHistoryEntry = useCallback(
+    (entry) => {
+      if (!entry || historyMutedRef.current) return;
+      undoStackRef.current.push(entry);
+      if (undoStackRef.current.length > MAX_HISTORY_ENTRIES) {
+        undoStackRef.current.splice(
+          0,
+          undoStackRef.current.length - MAX_HISTORY_ENTRIES
+        );
+      }
+      redoStackRef.current = [];
+      syncHistoryState();
+    },
+    [syncHistoryState]
+  );
 
   const loadCrew = useCallback(async () => {
     if (!canRun) return;
@@ -162,11 +243,23 @@ export default function useRosterData({
     try {
       const withMetaPath =
         "/rest/v1/crew_roster" +
+        `?select=id,crew_name,home_department,status,employment_type,is_department_lead,weekly_off_day_1,weekly_off_day_2,location_id` +
+        `&location_id=eq.${Number(location)}` +
+        `&status=eq.Active` +
+        `&order=crew_name.asc`;
+      const withMetaNoEmploymentPath =
+        "/rest/v1/crew_roster" +
         `?select=id,crew_name,home_department,status,is_department_lead,weekly_off_day_1,weekly_off_day_2,location_id` +
         `&location_id=eq.${Number(location)}` +
         `&status=eq.Active` +
         `&order=crew_name.asc`;
       const withLeadPath =
+        "/rest/v1/crew_roster" +
+        `?select=id,crew_name,home_department,status,employment_type,is_department_lead,location_id` +
+        `&location_id=eq.${Number(location)}` +
+        `&status=eq.Active` +
+        `&order=crew_name.asc`;
+      const withLeadNoEmploymentPath =
         "/rest/v1/crew_roster" +
         `?select=id,crew_name,home_department,status,is_department_lead,location_id` +
         `&location_id=eq.${Number(location)}` +
@@ -189,21 +282,34 @@ export default function useRosterData({
         const missingWeeklyCols =
           msg1.includes("weekly_off_day_1") || msg1.includes("weekly_off_day_2");
         const missingLeadCol = msg1.includes("is_department_lead");
+        const missingEmploymentCol = msg1.includes("employment_type");
         const missingColumn = msg1.includes("42703") || msg1.includes("column");
-        if (!missingColumn && !missingWeeklyCols && !missingLeadCol) throw firstErr;
+        if (
+          !missingColumn &&
+          !missingWeeklyCols &&
+          !missingLeadCol &&
+          !missingEmploymentCol
+        ) {
+          throw firstErr;
+        }
 
-        try {
+        if (missingLeadCol) {
+          rows = await supabaseGet(legacyPath, {
+            cacheTag: `roster:crew:${location}`,
+          });
+        } else if (missingWeeklyCols && missingEmploymentCol) {
+          rows = await supabaseGet(withLeadNoEmploymentPath, {
+            cacheTag: `roster:crew:${location}`,
+          });
+        } else if (missingWeeklyCols) {
           rows = await supabaseGet(withLeadPath, {
             cacheTag: `roster:crew:${location}`,
           });
-        } catch (secondErr) {
-          const msg2 = String(secondErr?.message || secondErr || "").toLowerCase();
-          const missingLeadCol2 =
-            msg2.includes("is_department_lead") ||
-            msg2.includes("42703") ||
-            msg2.includes("column");
-          if (!missingLeadCol2) throw secondErr;
-
+        } else if (missingEmploymentCol) {
+          rows = await supabaseGet(withMetaNoEmploymentPath, {
+            cacheTag: `roster:crew:${location}`,
+          });
+        } else {
           rows = await supabaseGet(legacyPath, {
             cacheTag: `roster:crew:${location}`,
           });
@@ -212,6 +318,8 @@ export default function useRosterData({
       setCrew(
         (Array.isArray(rows) ? rows : []).map((r) => ({
           ...r,
+          employment_type: normalizeEmploymentType(r?.employment_type),
+          employmentType: normalizeEmploymentType(r?.employment_type),
           is_department_lead: isTruthyFlag(r?.is_department_lead),
           weekly_off_day_1: normalizeWeekdayNumber(r?.weekly_off_day_1),
           weekly_off_day_2: normalizeWeekdayNumber(r?.weekly_off_day_2),
@@ -369,6 +477,46 @@ export default function useRosterData({
               leadOvertimeHours: normalizeHourNumber(r.lead_overtime_hours),
             });
           }
+
+          try {
+            const workedPath =
+              "/rest/v1/v_crew_day_worked_hours" +
+              `?select=location_id,work_date,crew_id,worked_hours` +
+              `&location_id=eq.${Number(location)}` +
+              `&work_date=gte.${rs}` +
+              `&work_date=lte.${re}`;
+            const workedRows = await supabaseGet(workedPath, {
+              cacheTag: `roster:workedhours:${location}:${rs}:${re}`,
+              ...opts,
+            });
+            for (const row of Array.isArray(workedRows) ? workedRows : []) {
+              const d = safeISODate(row?.work_date);
+              const cid = Number(row?.crew_id);
+              if (!d || !Number.isFinite(cid)) continue;
+              const k = shiftKey(d, cid);
+              const existing = nextHours.get(k) || {
+                totalHours: null,
+                leadHours: null,
+                regularHours: null,
+                regularOvertimeHours: null,
+                leadOvertimeHours: null,
+              };
+              nextHours.set(k, {
+                ...existing,
+                workedHours: normalizeHourNumber(row?.worked_hours),
+              });
+            }
+          } catch (workedErr) {
+            const workedMsg = String(workedErr?.message || workedErr || "").toLowerCase();
+            const missingWorkedView =
+              workedMsg.includes("v_crew_day_worked_hours") ||
+              workedMsg.includes("42p01") ||
+              workedMsg.includes("relation");
+            if (!missingWorkedView) {
+              setShiftError(String(workedErr?.message || workedErr));
+            }
+          }
+
           setDayHoursMap(nextHours);
         } catch (hoursErr) {
           const msg = String(hoursErr?.message || hoursErr || "").toLowerCase();
@@ -392,21 +540,78 @@ export default function useRosterData({
     [canRun, location, supabaseGet]
   );
 
+  const loadWeekHoursForRange = useCallback(
+    async (rangeStartISO, rangeEndISO, opts = {}) => {
+      if (!canRun) return;
+
+      const rs = safeISODate(rangeStartISO);
+      const re = safeISODate(rangeEndISO);
+      if (!rs || !re) return;
+
+      try {
+        const weekPath =
+          "/rest/v1/v_crew_week_hours" +
+          `?select=location_id,week_start,week_end,crew_id,total_hours,paid_hours,lead_hours,regular_hours,regular_overtime_hours,lead_overtime_hours` +
+          `&location_id=eq.${Number(location)}` +
+          `&week_start=gte.${rs}` +
+          `&week_start=lte.${re}`;
+
+        const rows = await supabaseGet(weekPath, {
+          cacheTag: `roster:weekhours:${location}:${rs}:${re}`,
+          ...opts,
+        });
+
+        const next = new Map();
+        for (const row of Array.isArray(rows) ? rows : []) {
+          const weekStart = safeISODate(row?.week_start);
+          const crewId = Number(row?.crew_id);
+          if (!weekStart || !Number.isFinite(crewId)) continue;
+          next.set(weekKey(weekStart, crewId), {
+            totalHours: normalizeHourNumber(row?.total_hours),
+            paidHours: normalizeHourNumber(row?.paid_hours),
+            leadHours: normalizeHourNumber(row?.lead_hours),
+            regularHours: normalizeHourNumber(row?.regular_hours),
+            regularOvertimeHours: normalizeHourNumber(row?.regular_overtime_hours),
+            leadOvertimeHours: normalizeHourNumber(row?.lead_overtime_hours),
+          });
+        }
+        setWeekHoursMap(next);
+      } catch (weekErr) {
+        const msg = String(weekErr?.message || weekErr || "").toLowerCase();
+        const missingView =
+          msg.includes("v_crew_week_hours") ||
+          msg.includes("42p01") ||
+          msg.includes("relation");
+        if (!missingView) {
+          setShiftError(String(weekErr?.message || weekErr));
+        }
+        setWeekHoursMap(new Map());
+      }
+    },
+    [canRun, location, supabaseGet]
+  );
+
   useEffect(() => {
     if (!canRun) return;
     loadCrew();
   }, [canRun, loadCrew]);
 
   useEffect(() => {
+    clearHistory();
+  }, [location, clearHistory]);
+
+  useEffect(() => {
     if (!canRun) return;
     loadAssignmentsForRange(startISO, endISO);
     loadShowsForRange(startISO, endISO);
     loadShiftsForRange(startISO, endISO);
+    loadWeekHoursForRange(startISO, endISO);
   }, [
     canRun,
     loadAssignmentsForRange,
     loadShowsForRange,
     loadShiftsForRange,
+    loadWeekHoursForRange,
     startISO,
     endISO,
   ]);
@@ -466,6 +671,7 @@ export default function useRosterData({
       const entry = dayHoursMap.get(shiftKey(d, cid));
       if (!entry) return null;
       return {
+        workedHours: normalizeHourNumber(entry?.workedHours),
         totalHours: normalizeHourNumber(entry?.totalHours),
         leadHours: normalizeHourNumber(entry?.leadHours),
         regularHours: normalizeHourNumber(entry?.regularHours),
@@ -474,6 +680,26 @@ export default function useRosterData({
       };
     },
     [dayHoursMap]
+  );
+
+  const getWeekHours = useCallback(
+    (weekStartISO, crewId) => {
+      const w = safeISODate(weekStartISO);
+      if (!w) return null;
+      const cid = Number(crewId);
+      if (!Number.isFinite(cid)) return null;
+      const entry = weekHoursMap.get(weekKey(w, cid));
+      if (!entry) return null;
+      return {
+        totalHours: normalizeHourNumber(entry?.totalHours),
+        paidHours: normalizeHourNumber(entry?.paidHours),
+        leadHours: normalizeHourNumber(entry?.leadHours),
+        regularHours: normalizeHourNumber(entry?.regularHours),
+        regularOvertimeHours: normalizeHourNumber(entry?.regularOvertimeHours),
+        leadOvertimeHours: normalizeHourNumber(entry?.leadOvertimeHours),
+      };
+    },
+    [weekHoursMap]
   );
 
   const refreshDayHoursForDate = useCallback(
@@ -493,6 +719,23 @@ export default function useRosterData({
           cacheTag: `roster:dayhours:${location}:${d}`,
           ...opts,
         });
+
+        let workedRows = [];
+        try {
+          const workedPath =
+            "/rest/v1/v_crew_day_worked_hours" +
+            `?select=location_id,work_date,crew_id,worked_hours` +
+            `&location_id=eq.${Number(location)}` +
+            `&work_date=eq.${d}`;
+          const result = await supabaseGet(workedPath, {
+            cacheTag: `roster:workedhours:${location}:${d}`,
+            ...opts,
+          });
+          workedRows = Array.isArray(result) ? result : [];
+        } catch (_workedErr) {
+          workedRows = [];
+        }
+
         setDayHoursMap((prev) => {
           const next = new Map(prev);
           for (const key of Array.from(next.keys())) {
@@ -503,11 +746,29 @@ export default function useRosterData({
             const rCrewId = Number(row?.crew_id);
             if (!rDate || rDate !== d || !Number.isFinite(rCrewId)) continue;
             next.set(shiftKey(d, rCrewId), {
+              workedHours: null,
               totalHours: normalizeHourNumber(row.total_hours),
               leadHours: normalizeHourNumber(row.lead_hours),
               regularHours: normalizeHourNumber(row.hours),
               regularOvertimeHours: normalizeHourNumber(row.regular_overtime_hours),
               leadOvertimeHours: normalizeHourNumber(row.lead_overtime_hours),
+            });
+          }
+          for (const row of workedRows) {
+            const rDate = safeISODate(row?.work_date);
+            const rCrewId = Number(row?.crew_id);
+            if (!rDate || rDate !== d || !Number.isFinite(rCrewId)) continue;
+            const k = shiftKey(d, rCrewId);
+            const existing = next.get(k) || {
+              totalHours: null,
+              leadHours: null,
+              regularHours: null,
+              regularOvertimeHours: null,
+              leadOvertimeHours: null,
+            };
+            next.set(k, {
+              ...existing,
+              workedHours: normalizeHourNumber(row?.worked_hours),
             });
           }
           return next;
@@ -520,20 +781,67 @@ export default function useRosterData({
   );
 
   const setShiftFor = useCallback(
-    async (dateISO, crewId, startTime, endTime, dayDescription = undefined) => {
-      if (!location || typeof supabasePost !== "function") return;
+    async (
+      dateISO,
+      crewId,
+      startTime,
+      endTime,
+      dayDescription = undefined,
+      opts = {}
+    ) => {
+      const recordHistory = opts?.recordHistory !== false;
+      const allowWhenPaused = opts?.allowWhenPaused === true;
+      if ((!allowWhenPaused && savePaused) || !location || typeof supabasePost !== "function") {
+        return false;
+      }
       const d = safeISODate(dateISO);
-      if (!d) return;
+      if (!d) return false;
       const cid = Number(crewId);
-      if (!Number.isFinite(cid)) return;
+      if (!Number.isFinite(cid)) return false;
 
       const current = getShift(d, cid);
+      const before = {
+        startTime: current?.startTime || null,
+        endTime: current?.endTime || null,
+        dayDescription: normalizeDayDescription(current?.dayDescription),
+      };
       const nextStart = startTime || null;
       const nextEnd = endTime || null;
       const nextDayDescription =
         dayDescription === undefined
           ? normalizeDayDescription(current?.dayDescription)
           : normalizeDayDescription(dayDescription);
+      const shiftStateKey = shiftKey(d, cid);
+      const nextIsAutoShowDescription =
+        !!nextDayDescription && AUTO_SHOW_DAY_DESCRIPTIONS.has(nextDayDescription);
+      const after = {
+        startTime: nextStart,
+        endTime: nextEnd,
+        dayDescription: nextDayDescription,
+      };
+      if (sameShiftState(before, after)) return false;
+
+      if (recordHistory) {
+        pushHistoryEntry({
+          type: "shift",
+          dateISO: d,
+          crewId: cid,
+          before,
+          after,
+        });
+      }
+
+      if (!nextStart && !nextEnd && !nextDayDescription) {
+        autoManagedShowDescriptionsRef.current.delete(shiftStateKey);
+      } else if (opts?.autoManaged === true) {
+        if (nextIsAutoShowDescription) {
+          autoManagedShowDescriptionsRef.current.add(shiftStateKey);
+        } else {
+          autoManagedShowDescriptionsRef.current.delete(shiftStateKey);
+        }
+      } else if (dayDescription !== undefined) {
+        autoManagedShowDescriptionsRef.current.delete(shiftStateKey);
+      }
 
       setShiftMap((prev) => {
         const m = new Map(prev);
@@ -548,6 +856,7 @@ export default function useRosterData({
         }
         return m;
       });
+      pendingAutoShowsRef.current.add(`${d}|${cid}`);
       setDayHoursMap((prev) => {
         const next = new Map(prev);
         next.delete(shiftKey(d, cid));
@@ -565,7 +874,8 @@ export default function useRosterData({
             );
           }
           await refreshDayHoursForDate(d, { bypassCache: true });
-          return;
+          await loadWeekHoursForRange(startISO, endISO, { bypassCache: true });
+          return true;
         }
         await supabasePost(
           "/rest/v1/crew_work_shifts?on_conflict=location_id,work_date,crew_id",
@@ -582,11 +892,25 @@ export default function useRosterData({
           { headers: { Prefer: "resolution=merge-duplicates,return=minimal" } }
         );
         await refreshDayHoursForDate(d, { bypassCache: true });
+        await loadWeekHoursForRange(startISO, endISO, { bypassCache: true });
+        return true;
       } catch (e) {
         setShiftError(String(e?.message || e));
+        return false;
       }
     },
-    [location, supabasePost, supabaseDelete, getShift, refreshDayHoursForDate]
+    [
+      location,
+      supabasePost,
+      supabaseDelete,
+      getShift,
+      refreshDayHoursForDate,
+      loadWeekHoursForRange,
+      startISO,
+      endISO,
+      savePaused,
+      pushHistoryEntry,
+    ]
   );
 
   const setDayDescriptionFor = useCallback(
@@ -597,7 +921,8 @@ export default function useRosterData({
         crewId,
         current?.startTime || null,
         current?.endTime || null,
-        dayDescription
+        dayDescription,
+        { autoManaged: false }
       );
     },
     [getShift, setShiftFor]
@@ -743,44 +1068,78 @@ export default function useRosterData({
     [location, supabaseDelete, loadShowsForRange, startISO, endISO]
   );
 
-  const allShowsTrackedForCrewOnDay = useCallback(
-    (dateISO, crewId, sourceMap) => {
+  const getAutoShowDescriptionForCrewOnDay = useCallback(
+    (dateISO, crewId, sourceMap, shiftStartTime = null) => {
       const d = safeISODate(dateISO);
-      if (!d) return false;
+      if (!d) return null;
       const cid = Number(crewId);
-      if (!Number.isFinite(cid)) return false;
+      if (!Number.isFinite(cid)) return null;
 
       const showsForDay = (showsByDate.get(d) || []).slice(0, 4);
-      if (!showsForDay.length) return false;
+      if (!showsForDay.length) return null;
 
+      let firstAssignedShowMinutes = null;
       for (const show of showsForDay) {
         const entry = sourceMap.get(keyOf(d, show.id, cid));
-        if (!entry?.isWorking) return false;
-        if (!normalizeTrackId(entry?.trackId)) return false;
+        if (!entry?.isWorking) continue;
+        if (!normalizeTrackId(entry?.trackId)) continue;
+        const showMinutes = parseSqlClockMinutes(show?.time);
+        if (showMinutes == null) continue;
+        if (firstAssignedShowMinutes == null || showMinutes < firstAssignedShowMinutes) {
+          firstAssignedShowMinutes = showMinutes;
+        }
       }
-      return true;
+
+      if (firstAssignedShowMinutes == null) return null;
+
+      const startMinutes = parseSqlClockMinutes(shiftStartTime);
+      if (startMinutes == null) return null;
+
+      const leadInMinutes = firstAssignedShowMinutes - startMinutes;
+      return leadInMinutes > WC_SHOWS_MINUTES_THRESHOLD ? "WC/Shows" : "Shows";
     },
     [showsByDate]
   );
 
   const setAssignmentFor = useCallback(
-    (dateISO, crewId, showId, next) => {
-      if (savePaused) return;
+    (dateISO, crewId, showId, next, opts = {}) => {
+      const recordHistory = opts?.recordHistory !== false;
+      const allowWhenPaused = opts?.allowWhenPaused === true;
+      if (!allowWhenPaused && savePaused) return false;
 
       const d = safeISODate(dateISO);
-      if (!d) return;
+      if (!d) return false;
 
       const cid = Number(crewId);
-      if (!Number.isFinite(cid)) return;
+      if (!Number.isFinite(cid)) return false;
 
       const lid = Number(location);
-      if (!Number.isFinite(lid)) return;
+      if (!Number.isFinite(lid)) return false;
 
       const sid = normalizeShowId(showId);
       const nextIsWorking = !!next?.isWorking;
-      const nextTrackId = nextIsWorking
-        ? normalizeTrackId(next?.trackId)
-        : null;
+      const nextTrackId = nextIsWorking ? normalizeTrackId(next?.trackId) : null;
+      const beforeRaw = getAssignment(d, cid, sid);
+      const before = {
+        isWorking: !!beforeRaw?.isWorking,
+        trackId: normalizeTrackId(beforeRaw?.trackId),
+      };
+      const after = {
+        isWorking: nextIsWorking,
+        trackId: nextTrackId,
+      };
+      if (sameAssignmentState(before, after)) return false;
+
+      if (recordHistory) {
+        pushHistoryEntry({
+          type: "assignment",
+          dateISO: d,
+          crewId: cid,
+          showId: sid,
+          before,
+          after,
+        });
+      }
 
       const k = keyOf(d, sid, cid);
 
@@ -801,8 +1160,9 @@ export default function useRosterData({
       });
 
       scheduleSave();
+      return true;
     },
-    [location, savePaused, scheduleSave]
+    [location, savePaused, getAssignment, pushHistoryEntry, scheduleSave]
   );
 
   const setWorkingFor = useCallback(
@@ -830,30 +1190,79 @@ export default function useRosterData({
   );
 
   useEffect(() => {
+    for (const [assignKey, entry] of assignMap.entries()) {
+      if (!entry?.isWorking) continue;
+      if (!normalizeTrackId(entry?.trackId)) continue;
+      const parts = String(assignKey || "").split("|");
+      const dRaw = parts[0];
+      const crewRaw = parts[2];
+      const d = safeISODate(dRaw);
+      const cid = Number(crewRaw);
+      if (!d || !Number.isFinite(cid)) continue;
+      pendingAutoShowsRef.current.add(`${d}|${cid}`);
+    }
+  }, [assignMap, showsByDate, shiftMap]);
+
+  useEffect(() => {
     const pending = Array.from(pendingAutoShowsRef.current);
     if (!pending.length) return;
     pendingAutoShowsRef.current.clear();
 
-    for (const key of pending) {
-      const [dRaw, crewRaw] = String(key || "").split("|");
-      const d = safeISODate(dRaw);
-      const cid = Number(crewRaw);
-      if (!d || !Number.isFinite(cid)) continue;
+    let canceled = false;
+    (async () => {
+      for (const key of pending) {
+        if (canceled) return;
 
-      if (!allShowsTrackedForCrewOnDay(d, cid, assignMap)) continue;
+        const [dRaw, crewRaw] = String(key || "").split("|");
+        const d = safeISODate(dRaw);
+        const cid = Number(crewRaw);
+        if (!d || !Number.isFinite(cid)) continue;
 
-      const currentShift = getShift(d, cid);
-      if (normalizeDayDescription(currentShift?.dayDescription) === "Shows") continue;
+        const currentShift = getShift(d, cid);
+        const currentDescription = normalizeDayDescription(currentShift?.dayDescription);
+        const shiftStateKey = shiftKey(d, cid);
+        const isAutoManaged =
+          autoManagedShowDescriptionsRef.current.has(shiftStateKey);
+        if (
+          currentDescription &&
+          (!AUTO_SHOW_DAY_DESCRIPTIONS.has(currentDescription) || !isAutoManaged)
+        ) {
+          continue;
+        }
 
-      setShiftFor(
-        d,
-        cid,
-        currentShift?.startTime || null,
-        currentShift?.endTime || null,
-        "Shows"
-      );
-    }
-  }, [assignMap, allShowsTrackedForCrewOnDay, getShift, setShiftFor]);
+        const nextDescription = normalizeDayDescription(
+          getAutoShowDescriptionForCrewOnDay(
+            d,
+            cid,
+            assignMap,
+            currentShift?.startTime || null
+          )
+        );
+
+        if (currentDescription === nextDescription) continue;
+
+        await setShiftFor(
+          d,
+          cid,
+          currentShift?.startTime || null,
+          currentShift?.endTime || null,
+          nextDescription,
+          { recordHistory: false, autoManaged: true }
+        );
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [
+    assignMap,
+    shiftMap,
+    showsByDate,
+    getAutoShowDescriptionForCrewOnDay,
+    getShift,
+    setShiftFor,
+  ]);
 
   const assignCrewToTrack = useCallback(
     (dateISO, crewId, showId, nextTrackId) => {
@@ -864,6 +1273,90 @@ export default function useRosterData({
     },
     [setAssignmentFor]
   );
+
+  const applyHistoryEntry = useCallback(
+    async (entry, direction) => {
+      if (!entry || (direction !== "undo" && direction !== "redo")) return false;
+      const target = direction === "undo" ? entry.before : entry.after;
+      if (entry.type === "assignment") {
+        return setAssignmentFor(
+          entry.dateISO,
+          entry.crewId,
+          entry.showId,
+          {
+            isWorking: !!target?.isWorking,
+            trackId: normalizeTrackId(target?.trackId),
+          },
+          { recordHistory: false }
+        );
+      }
+      if (entry.type === "shift") {
+        return setShiftFor(
+          entry.dateISO,
+          entry.crewId,
+          target?.startTime || null,
+          target?.endTime || null,
+          normalizeDayDescription(target?.dayDescription),
+          { recordHistory: false }
+        );
+      }
+      return false;
+    },
+    [setAssignmentFor, setShiftFor]
+  );
+
+  const undo = useCallback(async () => {
+    if (savePaused || historyApplyingRef.current) return false;
+    const entry = undoStackRef.current.pop();
+    if (!entry) return false;
+
+    historyApplyingRef.current = true;
+    setHistoryApplying(true);
+    historyMutedRef.current = true;
+    try {
+      const applied = await applyHistoryEntry(entry, "undo");
+      if (!applied) {
+        undoStackRef.current.push(entry);
+        syncHistoryState();
+        return false;
+      }
+      redoStackRef.current.push(entry);
+      syncHistoryState();
+      return true;
+    } finally {
+      historyMutedRef.current = false;
+      historyApplyingRef.current = false;
+      setHistoryApplying(false);
+    }
+  }, [applyHistoryEntry, savePaused, syncHistoryState]);
+
+  const redo = useCallback(async () => {
+    if (savePaused || historyApplyingRef.current) return false;
+    const entry = redoStackRef.current.pop();
+    if (!entry) return false;
+
+    historyApplyingRef.current = true;
+    setHistoryApplying(true);
+    historyMutedRef.current = true;
+    try {
+      const applied = await applyHistoryEntry(entry, "redo");
+      if (!applied) {
+        redoStackRef.current.push(entry);
+        syncHistoryState();
+        return false;
+      }
+      undoStackRef.current.push(entry);
+      syncHistoryState();
+      return true;
+    } finally {
+      historyMutedRef.current = false;
+      historyApplyingRef.current = false;
+      setHistoryApplying(false);
+    }
+  }, [applyHistoryEntry, savePaused, syncHistoryState]);
+
+  const canUndo = historyVersion >= 0 && undoStackRef.current.length > 0;
+  const canRedo = historyVersion >= 0 && redoStackRef.current.length > 0;
 
   const toggleCell = useCallback(
     (dateISO, crewId, showId) => {
@@ -1012,19 +1505,23 @@ export default function useRosterData({
   const shiftWeek = useCallback((deltaWeeks) => {
     const dw = Number(deltaWeeks) || 0;
     if (!dw) return;
+    clearHistory();
     setStartISO((prev) => addDaysISO(prev, dw * rangeDays));
-  }, [rangeDays]);
+  }, [clearHistory, rangeDays]);
 
   const refreshAssignments = useCallback((force = false) => {
     if (!canRun) return;
     if (!startISO || !endISO) return;
     if (force) {
+      clearHistory();
       setAssignMap(new Map());
       setDayHoursMap(new Map());
+      setWeekHoursMap(new Map());
     }
     loadAssignmentsForRange(startISO, endISO, force ? { bypassCache: true } : {});
     loadShowsForRange(startISO, endISO, force ? { bypassCache: true } : {});
     loadShiftsForRange(startISO, endISO, force ? { bypassCache: true } : {});
+    loadWeekHoursForRange(startISO, endISO, force ? { bypassCache: true } : {});
   }, [
     canRun,
     startISO,
@@ -1032,6 +1529,8 @@ export default function useRosterData({
     loadAssignmentsForRange,
     loadShowsForRange,
     loadShiftsForRange,
+    loadWeekHoursForRange,
+    clearHistory,
   ]);
 
   useEffect(() => {
@@ -1064,6 +1563,7 @@ export default function useRosterData({
     shiftError,
     getShift,
     getDayHours,
+    getWeekHours,
     setShiftFor,
     setDayDescriptionFor,
 
@@ -1078,6 +1578,8 @@ export default function useRosterData({
     setWorkingFor,
     setTrackFor,
     assignCrewToTrack,
+    undo,
+    redo,
     clearDay,
     copyPreviousWeek,
     shiftWeek,
@@ -1089,5 +1591,8 @@ export default function useRosterData({
     savePaused,
     saveError,
     retrySaving,
+    canUndo,
+    canRedo,
+    historyApplying,
   };
 }

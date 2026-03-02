@@ -20,6 +20,9 @@ type Props = {
   setActiveTab: Dispatch<SetStateAction<TabId>>;
   tabLabel: (key: TabId) => string;
   wide?: boolean;
+  secondaryTabs?: { value: string; label: string }[];
+  activeSecondaryTab?: string;
+  setActiveSecondaryTab?: (value: string) => void;
 };
 
 const LOGO_WRAPPER_STYLE: CSSProperties = {
@@ -79,6 +82,9 @@ export function AppHeader({
   setActiveTab,
   tabLabel,
   wide = false,
+  secondaryTabs = [],
+  activeSecondaryTab = "",
+  setActiveSecondaryTab,
 }: Props) {
   const headerRowStyle: CSSProperties = wide
     ? {
@@ -97,6 +103,67 @@ export function AppHeader({
         maxWidth: 1020,
       }
     : S.pillBar;
+  const hasSecondaryTabs =
+    secondaryTabs.length > 1 && typeof setActiveSecondaryTab === "function";
+  const secondaryRowStyle: CSSProperties = wide
+    ? {
+        display: "flex",
+        justifyContent: "flex-end",
+        marginTop: 8,
+      }
+    : {
+        display: "flex",
+        justifyContent: "center",
+        marginTop: 8,
+      };
+  const secondaryBarStyle: CSSProperties = wide
+    ? {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: 3,
+        borderRadius: 12,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.035)",
+        boxShadow: "0 8px 20px rgba(0,0,0,0.10)",
+        flex: "0 1 auto",
+        maxWidth: 1020,
+        width: "min(100%, 1020px)",
+        overflowX: "auto",
+        justifyContent: "flex-start",
+      }
+    : {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: 3,
+        borderRadius: 12,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.035)",
+        boxShadow: "0 8px 20px rgba(0,0,0,0.10)",
+        overflowX: "auto",
+        justifyContent: "flex-start",
+      };
+  const secondaryTabPillStyle = (active: boolean): CSSProperties => ({
+    padding: "6px 10px",
+    borderRadius: 10,
+    border: active
+      ? "1px solid rgba(76,146,255,0.26)"
+      : "1px solid transparent",
+    background: active
+      ? "linear-gradient(180deg, rgba(0,122,255,0.14) 0%, rgba(255,255,255,0.04) 100%)"
+      : "transparent",
+    color: active ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.66)",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "0",
+    lineHeight: 1.1,
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+    userSelect: "none",
+    transition:
+      "background 160ms ease, border-color 160ms ease, color 160ms ease, transform 120ms ease",
+  });
 
   return (
     <div style={S.topBar} data-app-topbar="true">
@@ -164,6 +231,30 @@ export function AppHeader({
           ))}
         </div>
       </div>
+
+      {hasSecondaryTabs ? (
+        <div style={secondaryRowStyle}>
+          <div style={secondaryBarStyle}>
+            {secondaryTabs.map((t) => (
+              <div
+                key={t.value}
+                style={secondaryTabPillStyle(activeSecondaryTab === t.value)}
+                onClick={() => setActiveSecondaryTab?.(t.value)}
+                onMouseDown={(e) => {
+                  e.currentTarget.style.transform = "scale(0.98)";
+                  setTimeout(() => {
+                    if (e.currentTarget)
+                      e.currentTarget.style.transform = "scale(1)";
+                  }, 120);
+                }}
+                title={t.label}
+              >
+                {t.label}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

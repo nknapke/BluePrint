@@ -6,6 +6,19 @@ const IGNORE_CODES = new Set([
   "OFF",
   "PTO",
   "WORKCALL",
+  "WORK CALL",
+  "WC",
+  "WC/PRESETS",
+  "WC/SHOWS",
+  "REHEARSAL",
+  "SHOWS",
+  "TRAINING",
+  "N/A",
+  "NA",
+  "#REF!",
+  "#VALUE!",
+  "OFFICE",
+  "WAREHOUSE",
   "SHADOW",
   "VAC",
   "SICK",
@@ -16,6 +29,59 @@ const IGNORE_CODES = new Set([
   "IN",
   "OUT",
 ]);
+
+const DAY_DESCRIPTION_MAP = new Map([
+  ["OFF", "OFF"],
+  ["PTO", "PTO"],
+  ["VAC", "OFF"],
+  ["SICK", "OFF"],
+  ["HOLIDAY", "OFF"],
+  ["WORKCALL", "Workcall"],
+  ["WORK CALL", "Workcall"],
+  ["CALL", "Workcall"],
+  ["WC", "Workcall"],
+  ["OFFICE", "Workcall"],
+  ["WAREHOUSE", "Workcall"],
+  ["SHADOW", "Workcall"],
+  ["TRAINING", "Rehearsal"],
+  ["WC/PRESETS", "WC/Presets"],
+  ["WC PRESETS", "WC/Presets"],
+  ["WCPRESETS", "WC/Presets"],
+  ["WC/SHOWS", "WC/Shows"],
+  ["WC SHOWS", "WC/Shows"],
+  ["WCSHOWS", "WC/Shows"],
+  ["REHEARSAL", "Rehearsal"],
+  ["SHOWS", "Shows"],
+  ["SHOW", "Shows"],
+]);
+const IMPORT_ALLOWED_DAY_DESCRIPTIONS = new Set(["OFF", "PTO", "Workcall"]);
+
+const DAY_DESCRIPTION_NULLS = new Set([
+  "N/A",
+  "NA",
+  "#REF!",
+  "#VALUE!",
+  "FALSE",
+  "TRUE",
+]);
+
+function normalizeUpperToken(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
+function normalizeImportedDayDescription(value) {
+  const token = normalizeUpperToken(value);
+  if (!token) return null;
+  if (DAY_DESCRIPTION_NULLS.has(token)) return null;
+  if (!DAY_DESCRIPTION_MAP.has(token)) return null;
+  const mapped = DAY_DESCRIPTION_MAP.get(token) || null;
+  if (!mapped) return null;
+  if (!IMPORT_ALLOWED_DAY_DESCRIPTIONS.has(mapped)) return null;
+  return mapped;
+}
 
 function parseCsv(text) {
   const rows = [];
@@ -181,6 +247,25 @@ function detectTimeRow(rows, dateRowIdx) {
   return null;
 }
 
+function detectInOutRow(rows, timeRowIdx) {
+  if (timeRowIdx == null) return null;
+  for (
+    let i = timeRowIdx + 1;
+    i < Math.min(rows.length, timeRowIdx + 6);
+    i += 1
+  ) {
+    const row = rows[i] || [];
+    let labels = 0;
+    for (const cell of row) {
+      const token = normalizeUpperToken(cell);
+      if (token === "IN" || token === "OUT") labels += 1;
+    }
+    if (labels >= 2) return i;
+  }
+  if (timeRowIdx + 1 < rows.length) return timeRowIdx + 1;
+  return null;
+}
+
 function detectNameColumn(rows, dataStartRow) {
   if (dataStartRow == null) return 1;
   const sample = rows.slice(dataStartRow, dataStartRow + 8);
@@ -209,10 +294,11 @@ function detectNameColumn(rows, dataStartRow) {
   return bestIdx;
 }
 
-function buildDayBlocks(rows, dateRowIdx, timeRowIdx) {
+function buildDayBlocks(rows, dateRowIdx, timeRowIdx, inOutRowIdx) {
   if (dateRowIdx == null || timeRowIdx == null) return [];
   const dateRow = rows[dateRowIdx] || [];
   const timeRow = rows[timeRowIdx] || [];
+  const inOutRow = rows[inOutRowIdx] || [];
   const dateCols = [];
   dateRow.forEach((cell, idx) => {
     if (isDateLike(cell)) {
@@ -271,10 +357,36 @@ function buildDayBlocks(rows, dateRowIdx, timeRowIdx) {
       sortOrder: idx + 1,
     }));
 
+    const inCols = [];
+    const outCols = [];
+    for (let c = start; c <= end; c += 1) {
+      const label = normalizeUpperToken(inOutRow[c]);
+      if (label === "IN") inCols.push(c);
+      if (label === "OUT") outCols.push(c);
+    }
+    if (!inCols.length && normalizedShows.length) {
+      inCols.push(normalizedShows[0].col);
+    }
+    if (!outCols.length && normalizedShows.length) {
+      outCols.push(normalizedShows[normalizedShows.length - 1].col);
+    }
+
+    const valueCols = [
+      ...normalizedShows.map((s) => s.col),
+      ...inCols,
+      ...outCols,
+    ].filter((v) => Number.isFinite(v));
+    const valueStartCol = valueCols.length ? Math.min(...valueCols) : start;
+    const valueEndCol = valueCols.length ? Math.max(...valueCols) : end;
+
     blocks.push({
       dateISO,
       startCol: start,
       endCol: end,
+      valueStartCol,
+      valueEndCol,
+      inCols,
+      outCols,
       shows: normalizedShows,
     });
   }
@@ -328,6 +440,8 @@ export default function MasterScheduleImportModal({
   const [parseError, setParseError] = useState("");
   const [dateRowIdx, setDateRowIdx] = useState(null);
   const [timeRowIdx, setTimeRowIdx] = useState(null);
+  const [inOutRowIdx, setInOutRowIdx] = useState(null);
+  const [inOutTouched, setInOutTouched] = useState(false);
   const [dataStartRowIdx, setDataStartRowIdx] = useState(null);
   const [dataStartTouched, setDataStartTouched] = useState(false);
   const [nameColIdx, setNameColIdx] = useState(1);
@@ -384,8 +498,8 @@ export default function MasterScheduleImportModal({
   }, [tracks]);
 
   const dayBlocks = useMemo(
-    () => buildDayBlocks(rows, dateRowIdx, timeRowIdx),
-    [rows, dateRowIdx, timeRowIdx]
+    () => buildDayBlocks(rows, dateRowIdx, timeRowIdx, inOutRowIdx),
+    [rows, dateRowIdx, timeRowIdx, inOutRowIdx]
   );
 
   const crewBlocks = useMemo(
@@ -409,6 +523,27 @@ export default function MasterScheduleImportModal({
       if (!dateRange.end || b.dateISO > dateRange.end) dateRange.end = b.dateISO;
     });
 
+    for (const b of dayBlocks) {
+      const showList =
+        Array.isArray(b.shows) && b.shows.length
+          ? b.shows
+          : [{ col: b.startCol, time: null, sortOrder: 1 }];
+      showList.forEach((show, showIdx) => {
+        const showTime = show.time;
+        if (!showTime) return;
+        const sortOrder = show.sortOrder || showIdx + 1;
+        const showKey = `${b.dateISO}|${showTime}|${sortOrder}`;
+        if (!showInstances.has(showKey)) {
+          showInstances.set(showKey, {
+            location_id: Number(locId),
+            show_date: b.dateISO,
+            show_time: showTime,
+            sort_order: sortOrder,
+          });
+        }
+      });
+    }
+
     for (const block of crewBlocks) {
       const name = block.name;
       if (!name || name.toLowerCase().includes("total")) continue;
@@ -428,34 +563,88 @@ export default function MasterScheduleImportModal({
             ? b.shows
             : [{ col: b.startCol, time: null, sortOrder: 1 }];
 
-        // Extract work time range (IN/OUT) from the crew block
-        const timeCols = showList
-          .map((s) => s.col)
-          .filter((v) => Number.isFinite(v))
-          .sort((a, b) => a - b);
+        const pickByMins = (items, mode) => {
+          if (!items.length) return null;
+          let best = items[0];
+          for (let i = 1; i < items.length; i += 1) {
+            const candidate = items[i];
+            if (mode === "min" && candidate.mins < best.mins) best = candidate;
+            if (mode === "max" && candidate.mins > best.mins) best = candidate;
+          }
+          return best.sqlTime;
+        };
+
+        const inCols = Array.isArray(b.inCols)
+          ? b.inCols.filter((v) => Number.isFinite(v))
+          : [];
+        const outCols = Array.isArray(b.outCols)
+          ? b.outCols.filter((v) => Number.isFinite(v))
+          : [];
+        const fallbackStartCol = Number.isFinite(b.valueStartCol) ? b.valueStartCol : b.startCol;
+        const fallbackEndCol = Number.isFinite(b.valueEndCol) ? b.valueEndCol : b.endCol;
+
         let startTime = null;
         let endTime = null;
-        if (timeCols.length) {
-          for (let r = block.start; r <= block.end; r += 1) {
-            const row = rows[r] || [];
-            for (const col of timeCols) {
-              const raw = (row[col] || "").trim();
-              if (!raw) continue;
-              if (!isTimeLike(raw)) continue;
-              const sqlTime = toSqlTime(raw);
-              if (!sqlTime) continue;
-              if (!startTime) {
-                startTime = sqlTime;
-              } else if (!endTime) {
-                endTime = sqlTime;
-              }
-              if (startTime && endTime) break;
-            }
-            if (startTime && endTime) break;
+        const startCandidates = [];
+        const endCandidates = [];
+
+        for (let r = block.start; r <= block.end; r += 1) {
+          const row = rows[r] || [];
+          for (const col of inCols) {
+            const raw = (row[col] || "").trim();
+            if (!raw || !isTimeLike(raw)) continue;
+            const mins = parseTimeToMinutes(raw);
+            const sqlTime = toSqlTime(raw);
+            if (mins == null || !sqlTime) continue;
+            startCandidates.push({ mins, sqlTime });
+          }
+          for (const col of outCols) {
+            const raw = (row[col] || "").trim();
+            if (!raw || !isTimeLike(raw)) continue;
+            const mins = parseTimeToMinutes(raw);
+            const sqlTime = toSqlTime(raw);
+            if (mins == null || !sqlTime) continue;
+            endCandidates.push({ mins, sqlTime });
           }
         }
 
-        if ((startTime || endTime) && crewId) {
+        startTime = pickByMins(startCandidates, "min");
+        endTime = pickByMins(endCandidates, "max");
+
+        if (!startTime || !endTime) {
+          const allTimeCandidates = [];
+          for (let r = block.start; r <= block.end; r += 1) {
+            const row = rows[r] || [];
+            for (let col = fallbackStartCol; col <= fallbackEndCol; col += 1) {
+              const raw = (row[col] || "").trim();
+              if (!raw || !isTimeLike(raw)) continue;
+              const mins = parseTimeToMinutes(raw);
+              const sqlTime = toSqlTime(raw);
+              if (mins == null || !sqlTime) continue;
+              allTimeCandidates.push({ mins, sqlTime });
+            }
+          }
+          if (!startTime) startTime = pickByMins(allTimeCandidates, "min");
+          if (!endTime && allTimeCandidates.length >= 2) {
+            endTime = pickByMins(allTimeCandidates, "max");
+          }
+        }
+
+        let dayDescription = null;
+        for (let r = block.start; r <= block.end; r += 1) {
+          const row = rows[r] || [];
+          for (let col = fallbackStartCol; col <= fallbackEndCol; col += 1) {
+            const raw = (row[col] || "").trim();
+            if (!raw) continue;
+            const normalized = normalizeImportedDayDescription(raw);
+            if (!normalized) continue;
+            dayDescription = normalized;
+            break;
+          }
+          if (dayDescription) break;
+        }
+
+        if ((startTime || endTime || dayDescription) && crewId) {
           const shiftKey = `${b.dateISO}|${crewId}`;
           shiftEntries.set(shiftKey, {
             location_id: Number(locId),
@@ -463,6 +652,7 @@ export default function MasterScheduleImportModal({
             crew_id: Number(crewId),
             start_time: startTime,
             end_time: endTime,
+            day_description: dayDescription,
           });
         }
 
@@ -494,17 +684,8 @@ export default function MasterScheduleImportModal({
           }
           if (!crewId) return;
 
-          const showTime = show.time || "00:00:00";
-          const sortOrder = show.sortOrder || showIdx + 1;
-          const showKey = `${b.dateISO}|${showTime}|${sortOrder}`;
-          if (!showInstances.has(showKey)) {
-            showInstances.set(showKey, {
-              location_id: Number(locId),
-              show_date: b.dateISO,
-              show_time: showTime,
-              sort_order: sortOrder,
-            });
-          }
+          const showTime = show.time;
+          if (!showTime) return;
 
           assignments.push({
             location_id: Number(locId),
@@ -531,7 +712,6 @@ export default function MasterScheduleImportModal({
   }, [
     rows,
     dataStartRowIdx,
-    nameColIdx,
     dayBlocks,
     crewBlocks,
     crewMap,
@@ -542,28 +722,50 @@ export default function MasterScheduleImportModal({
 
   useEffect(() => {
     if (!rows.length) return;
-    if (dateRowIdx != null && timeRowIdx != null) return;
+    if (dateRowIdx != null && timeRowIdx != null && inOutRowIdx != null) return;
     const dRow = detectDateRow(rows);
     const tRow = detectTimeRow(rows, dRow);
-    setDateRowIdx(dRow);
-    setTimeRowIdx(tRow);
-    const startRow = tRow != null ? tRow + 2 : null;
-    if (!dataStartTouched) setDataStartRowIdx(startRow);
-    const nameCol = detectNameColumn(rows, startRow);
-    setNameColIdx(nameCol);
-  }, [rows, dateRowIdx, timeRowIdx, dataStartTouched]);
-
-  useEffect(() => {
-    if (!rows.length) return;
-    if (timeRowIdx == null) return;
-    const startRow = timeRowIdx + 2;
-    setDataStartRowIdx(startRow);
+    const ioRow = detectInOutRow(rows, tRow);
+    if (dateRowIdx == null) setDateRowIdx(dRow);
+    if (timeRowIdx == null) setTimeRowIdx(tRow);
+    if (!inOutTouched) setInOutRowIdx(ioRow);
+    const startRow = ioRow != null ? ioRow + 1 : tRow != null ? tRow + 2 : null;
     if (!dataStartTouched) setDataStartRowIdx(startRow);
     if (!nameColTouched) {
       const nameCol = detectNameColumn(rows, startRow);
       setNameColIdx(nameCol);
     }
-  }, [rows, timeRowIdx, nameColTouched, dataStartTouched]);
+  }, [
+    rows,
+    dateRowIdx,
+    timeRowIdx,
+    inOutRowIdx,
+    inOutTouched,
+    dataStartTouched,
+    nameColTouched,
+  ]);
+
+  useEffect(() => {
+    if (!rows.length) return;
+    if (timeRowIdx == null) return;
+    const autoInOutRow = detectInOutRow(rows, timeRowIdx);
+    const effectiveInOutRow = inOutTouched ? inOutRowIdx : autoInOutRow;
+    if (!inOutTouched) setInOutRowIdx(autoInOutRow);
+    const startRow =
+      effectiveInOutRow != null ? effectiveInOutRow + 1 : timeRowIdx + 2;
+    if (!dataStartTouched) setDataStartRowIdx(startRow);
+    if (!nameColTouched) {
+      const nameCol = detectNameColumn(rows, startRow);
+      setNameColIdx(nameCol);
+    }
+  }, [
+    rows,
+    timeRowIdx,
+    inOutRowIdx,
+    inOutTouched,
+    nameColTouched,
+    dataStartTouched,
+  ]);
 
   useEffect(() => {
     if (!rows.length || !tracks?.length) return;
@@ -582,13 +784,20 @@ export default function MasterScheduleImportModal({
     if (!file) return;
     setImportError("");
     setImportResult("");
+    setParseError("");
     try {
       const text = await file.text();
       const parsed = parseCsv(text);
       setRows(parsed);
       setFileName(file.name);
+      setDateRowIdx(null);
+      setTimeRowIdx(null);
+      setInOutRowIdx(null);
+      setDataStartRowIdx(null);
+      setNameColIdx(1);
       setNameColTouched(false);
       setDataStartTouched(false);
+      setInOutTouched(false);
       setCodeMap({});
       setNameMap({});
     } catch (err) {
@@ -609,8 +818,11 @@ export default function MasterScheduleImportModal({
   };
 
   const runImport = async () => {
-    if (!crewExtract || !crewExtract.assignments.length) {
-      setImportError("No assignments found to import.");
+    const shiftRows = crewExtract?.shiftEntries
+      ? Array.from(crewExtract.shiftEntries.values())
+      : [];
+    if (!crewExtract || (!crewExtract.assignments.length && !shiftRows.length)) {
+      setImportError("No assignments or shifts found to import.");
       return;
     }
     if (!crewExtract.showInstances || crewExtract.showInstances.size === 0) {
@@ -637,6 +849,13 @@ export default function MasterScheduleImportModal({
         `/rest/v1/show_instances?location_id=eq.${Number(
           locId
         )}&show_date=gte.${crewExtract.dateRange.start}&show_date=lte.${
+          crewExtract.dateRange.end
+        }`
+      );
+      await supabaseDelete(
+        `/rest/v1/crew_work_shifts?location_id=eq.${Number(
+          locId
+        )}&work_date=gte.${crewExtract.dateRange.start}&work_date=lte.${
           crewExtract.dateRange.end
         }`
       );
@@ -690,9 +909,6 @@ export default function MasterScheduleImportModal({
         );
       }
 
-      const shiftRows = crewExtract.shiftEntries
-        ? Array.from(crewExtract.shiftEntries.values())
-        : [];
       if (shiftRows.length) {
         const shiftChunk = 500;
         for (let i = 0; i < shiftRows.length; i += shiftChunk) {
@@ -705,8 +921,11 @@ export default function MasterScheduleImportModal({
         }
       }
 
+      const shiftsWithDescription = shiftRows.filter(
+        (s) => String(s?.day_description || "").trim().length > 0
+      ).length;
       setImportResult(
-        `Imported ${assignments.length} assignments for ${crewExtract.dateRange.start} to ${crewExtract.dateRange.end}.`
+        `Imported ${showRows.length} shows, ${assignments.length} assignments, and ${shiftRows.length} shifts (${shiftsWithDescription} with day descriptions) for ${crewExtract.dateRange.start} to ${crewExtract.dateRange.end}.`
       );
       if (typeof onImported === "function") onImported();
     } catch (e) {
@@ -768,6 +987,12 @@ export default function MasterScheduleImportModal({
                   <div style={{ fontSize: 12, opacity: 0.75 }}>
                     {previewRow(timeRowIdx)}
                   </div>
+                  <div style={{ fontSize: 12, opacity: 0.85 }}>
+                    IN/OUT row: {inOutRowIdx != null ? inOutRowIdx + 1 : "—"}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>
+                    {previewRow(inOutRowIdx)}
+                  </div>
                 </div>
 
                 <div style={{ display: "grid", gap: 10 }}>
@@ -789,6 +1014,34 @@ export default function MasterScheduleImportModal({
                       >
                         <option value="">Auto</option>
                         {rows.slice(0, 15).map((_, idx) => (
+                          <option key={idx} value={idx}>
+                            Row {idx + 1}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ minWidth: 140 }}>
+                      <div style={{ ...S.helper, marginBottom: 6 }}>
+                        IN/OUT row
+                      </div>
+                      <select
+                        style={{ ...S.select, width: "100%" }}
+                        value={inOutRowIdx ?? ""}
+                        onChange={(e) => {
+                          const next =
+                            e.target.value === ""
+                              ? null
+                              : Number(e.target.value);
+                          setInOutRowIdx(next);
+                          setInOutTouched(true);
+                          if (!dataStartTouched && next != null) {
+                            setDataStartRowIdx(next + 1);
+                          }
+                        }}
+                      >
+                        <option value="">Auto</option>
+                        {rows.slice(0, 20).map((_, idx) => (
                           <option key={idx} value={idx}>
                             Row {idx + 1}
                           </option>
@@ -919,6 +1172,18 @@ export default function MasterScheduleImportModal({
                   <div style={{ fontSize: 12, opacity: 0.85 }}>
                     Assignments: {crewExtract?.assignments?.length || 0}
                   </div>
+                  <div style={{ fontSize: 12, opacity: 0.85 }}>
+                    Show times: {crewExtract?.showInstances?.size || 0}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.85 }}>
+                    Shifts: {crewExtract?.shiftEntries?.size || 0}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.85 }}>
+                    Day descriptions:{" "}
+                    {Array.from(crewExtract?.shiftEntries?.values?.() || []).filter((s) =>
+                      String(s?.day_description || "").trim()
+                    ).length}
+                  </div>
                   {crewExtract?.unknownCrew?.size ? (
                     <div style={{ fontSize: 12, color: "rgba(255,200,120,0.9)" }}>
                       Unmatched crew: {Array.from(crewExtract.unknownCrew).join(", ")}
@@ -997,8 +1262,19 @@ export default function MasterScheduleImportModal({
             Close
           </button>
           <button
-            style={S.button("primary", importBusy || !crewExtract?.assignments?.length)}
-            disabled={importBusy || !crewExtract?.assignments?.length}
+            style={S.button(
+              "primary",
+              importBusy ||
+                !crewExtract?.showInstances?.size ||
+                (!(crewExtract?.assignments?.length || 0) &&
+                  !(crewExtract?.shiftEntries?.size || 0))
+            )}
+            disabled={
+              importBusy ||
+              !crewExtract?.showInstances?.size ||
+              (!(crewExtract?.assignments?.length || 0) &&
+                !(crewExtract?.shiftEntries?.size || 0))
+            }
             onClick={runImport}
           >
             {importBusy ? "Importing…" : "Import & Overwrite"}

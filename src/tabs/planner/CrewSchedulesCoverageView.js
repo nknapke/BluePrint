@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef } from "react";
 
 import { normalizeHex } from "../../utils/colors";
 import { formatLongDate } from "../../utils/dates";
-import { prettyDept } from "../../utils/strings";
+import { matchesCrewScheduleDeptFilter, prettyDept } from "../../utils/strings";
 
 const EMPTY_ARRAY = [];
 
@@ -33,6 +33,7 @@ export default function CrewSchedulesCoverageView({
   S,
   roster,
   search,
+  departmentFilter = "ALL",
   tracks = [],
 }) {
   const layoutMode = "grid";
@@ -54,13 +55,16 @@ export default function CrewSchedulesCoverageView({
     .toLowerCase();
 
   const filteredCrew = useMemo(() => {
-    if (!q) return allCrew;
     return allCrew.filter((c) => {
+      if (!matchesCrewScheduleDeptFilter(c?.home_department, departmentFilter)) {
+        return false;
+      }
+      if (!q) return true;
       const name = String(c?.crew_name || "").toLowerCase();
       const dept = String(c?.home_department || "").toLowerCase();
       return name.includes(q) || dept.includes(q);
     });
-  }, [allCrew, q]);
+  }, [allCrew, q, departmentFilter]);
 
   const crewOptions = useMemo(() => {
     return filteredCrew

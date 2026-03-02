@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useMemo, useState } from "react";
 import { normalizeHex, trackGlowFromHex } from "../../utils/colors";
 
-import { prettyDept } from "../../utils/strings";
+import { matchesCrewScheduleDeptFilter, prettyDept } from "../../utils/strings";
 
 const EMPTY_ARRAY = [];
 
@@ -70,27 +70,6 @@ const formatShowTime = (value) => {
   return `${hour}:${String(minute).padStart(2, "0")} ${mer}`;
 };
 
-const minutesFromTime = (value) => {
-  if (!value) return null;
-  const match = String(value).match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-  if (!match) return null;
-  const hh = Number(match[1]);
-  const mm = Number(match[2]);
-  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
-  return hh * 60 + mm;
-};
-
-const shiftDurationHours = (startTime, endTime) => {
-  const start = minutesFromTime(startTime);
-  const end = minutesFromTime(endTime);
-  if (start === null || end === null) return null;
-  let diff = end - start;
-  if (diff < 0) diff += 24 * 60;
-  if (diff === 0) diff = 24 * 60;
-  return diff / 60;
-};
-
 const formatShortDay = (dateISO) => {
   if (!dateISO) return "";
   const d = new Date(`${dateISO}T00:00:00`);
@@ -125,10 +104,31 @@ const normalizeWeekdayNumber = (value) => {
   return i;
 };
 
+const employmentSortRank = (crew) => {
+  const value = String(crew?.employment_type || crew?.employmentType || "")
+    .trim()
+    .toLowerCase();
+  if (value === "on-call" || value === "on call" || value === "oncall") return 1;
+  return 0;
+};
+
+const compareCrewForSchedule = (a, b) => {
+  const leadRankA = a?.is_department_lead ? 0 : 1;
+  const leadRankB = b?.is_department_lead ? 0 : 1;
+  if (leadRankA !== leadRankB) return leadRankA - leadRankB;
+
+  const employmentRankA = employmentSortRank(a);
+  const employmentRankB = employmentSortRank(b);
+  if (employmentRankA !== employmentRankB) return employmentRankA - employmentRankB;
+
+  return String(a?.crew_name || "").localeCompare(String(b?.crew_name || ""));
+};
+
 export default function CrewSchedulesGridV2({
   S,
   roster,
   search,
+  departmentFilter = "ALL",
   tracks = [],
 }) {
   const savePaused = !!roster?.savePaused;
@@ -171,6 +171,11 @@ export default function CrewSchedulesGridV2({
     () =>
       typeof roster?.getDayHours === "function" ? roster.getDayHours : () => null,
     [roster?.getDayHours]
+  );
+  const getWeekHours = useMemo(
+    () =>
+      typeof roster?.getWeekHours === "function" ? roster.getWeekHours : () => null,
+    [roster?.getWeekHours]
   );
   const setShiftFor = useMemo(
     () => (typeof roster?.setShiftFor === "function" ? roster.setShiftFor : () => null),
@@ -218,13 +223,16 @@ export default function CrewSchedulesGridV2({
     const q = String(search || "")
       .trim()
       .toLowerCase();
-    if (!q) return crew;
     return crew.filter((c) => {
+      if (!matchesCrewScheduleDeptFilter(c?.home_department, departmentFilter)) {
+        return false;
+      }
+      if (!q) return true;
       const name = String(c?.crew_name || "").toLowerCase();
       const dept = String(c?.home_department || "").toLowerCase();
       return name.includes(q) || dept.includes(q);
     });
-  }, [roster?.crew, search]);
+  }, [roster?.crew, search, departmentFilter]);
 
   const grouped = useMemo(() => {
     const map = new Map();
@@ -236,11 +244,7 @@ export default function CrewSchedulesGridV2({
     return Array.from(map.entries())
       .map(([dept, people]) => ({
         dept,
-        people: people
-          .slice()
-          .sort((a, b) =>
-            String(a?.crew_name || "").localeCompare(String(b?.crew_name || ""))
-          ),
+        people: people.slice().sort(compareCrewForSchedule),
       }))
       .sort((a, b) => a.dept.localeCompare(b.dept));
   }, [filteredCrew]);
@@ -349,6 +353,11 @@ export default function CrewSchedulesGridV2({
     const endCommitted = shift?.endTime ? formatShowTime(shift.endTime) : "";
 
     const text = String(rawValue || "").trim();
+    if (!text) {
+      // Keep existing committed time when field is left blank.
+      clearTimeInputDraft(dateISO, crewId, field);
+      return;
+    }
     const parsed = text ? parseTimeInput(text) : null;
     const normalized = !text
       ? ""
@@ -364,6 +373,21 @@ export default function CrewSchedulesGridV2({
       handleShiftChange(dateISO, crewId, startCommitted, normalized);
     }
     clearTimeInputDraft(dateISO, crewId, field);
+  };
+
+  const primeTimeDropdown = (dateISO, crewId, field) => {
+    const shift = getShift(dateISO, crewId) || {};
+    const committed =
+      field === "start"
+        ? shift?.startTime
+          ? formatShowTime(shift.startTime)
+          : ""
+        : shift?.endTime
+        ? formatShowTime(shift.endTime)
+        : "";
+    const current = getTimeInputValue(dateISO, crewId, field, committed);
+    if (!String(current || "").trim()) return;
+    setTimeInputDraft(dateISO, crewId, field, "");
   };
 
   const applyShowState = (dateISO, crewId, showId, value) => {
@@ -474,14 +498,18 @@ export default function CrewSchedulesGridV2({
     return !hasDayDataForCrew(dateISO, crewId);
   };
 
+  const isPtoDayForCrew = (dateISO, crewId) =>
+    getDayDescriptionForDay(dateISO, crewId).toUpperCase() === "PTO";
+
   const showDayDetailForCrew = (dateISO, crewId) => {
-    if (getDayDescriptionForDay(dateISO, crewId).toUpperCase() === "OFF") return false;
+    const dayDescription = getDayDescriptionForDay(dateISO, crewId).toUpperCase();
+    if (dayDescription === "OFF" || dayDescription === "PTO") return false;
     return hasDayDataForCrew(dateISO, crewId);
   };
 
   const handleAddShiftForDay = (dateISO, crewId) => {
     if (savePaused || typeof setShiftFor !== "function") return;
-    if (isOffDayForCrew(dateISO, crewId)) {
+    if (isOffDayForCrew(dateISO, crewId) || isPtoDayForCrew(dateISO, crewId)) {
       setShiftFor(dateISO, crewId, DEFAULT_DAY_START_TIME, DEFAULT_DAY_END_TIME, null);
       return;
     }
@@ -525,6 +553,21 @@ export default function CrewSchedulesGridV2({
     }
   };
 
+  const isWorkCallDayForCrew = (dateISO, crewId) => {
+    const value = getDayDescriptionForDay(dateISO, crewId);
+    return String(value || "")
+      .trim()
+      .toLowerCase() === "workcall";
+  };
+
+  const shouldShowTrackRowForCrewDay = (dateISO, crewId) => {
+    if (!showDayDetailForCrew(dateISO, crewId)) return false;
+    if (isWorkCallDayForCrew(dateISO, crewId)) return false;
+    const dayDescription = getDayDescriptionForDay(dateISO, crewId);
+    if (dayDescription) return true;
+    return hasWorkingShowForDay(dateISO, crewId);
+  };
+
   const ui = {
     shellBg:
       "linear-gradient(180deg, rgba(14,20,34,0.78) 0%, rgba(10,15,27,0.72) 100%)",
@@ -541,6 +584,7 @@ export default function CrewSchedulesGridV2({
     crewBg: "linear-gradient(180deg, #f9fbff 0%, #f2f6ff 100%)",
     emptyDayBg: "#f8faff",
     offDayBg: "linear-gradient(180deg, #e6e9f0 0%, #d8dde8 100%)",
+    ptoDayBg: "linear-gradient(180deg, #dff5e6 0%, #cbeed8 100%)",
     shiftBg: "#eef3fb",
     descriptionBg: "#f5f8ff",
     hoursBg: "#eef3f9",
@@ -573,6 +617,364 @@ export default function CrewSchedulesGridV2({
     padding: 10,
     color: ui.text,
     boxShadow: ui.paperShadow,
+  };
+
+  const renderDescriptionCell = (
+    dateISO,
+    crewId,
+    span,
+    { keyPrefix = "desc", rowSpan = 1, height = 24, minHeight = 20 } = {}
+  ) => {
+    const shift = getShift(dateISO, crewId) || {};
+    const dayDescription = String(shift?.dayDescription || "").trim();
+    return (
+      <td
+        key={`${keyPrefix}-${crewId}-${dateISO}`}
+        rowSpan={rowSpan}
+        colSpan={span}
+        style={{
+          border: cellBorder,
+          background: ui.descriptionBg,
+          padding: "2px 4px",
+          height,
+        }}
+      >
+        <select
+          disabled={savePaused}
+          value={dayDescription}
+          onChange={(e) =>
+            handleDayDescriptionChange(dateISO, crewId, e.target.value || null)
+          }
+          style={{
+            width: "100%",
+            height: "100%",
+            minHeight,
+            minWidth: 0,
+            borderRadius: 0,
+            border: "none",
+            background: "transparent",
+            fontSize: 10,
+            fontWeight: 800,
+            color: dayDescription ? "#1a2740" : "#5d6880",
+            padding: "0 16px 0 7px",
+            appearance: "none",
+            WebkitAppearance: "none",
+            MozAppearance: "none",
+            textAlign: "center",
+            textAlignLast: "center",
+            cursor: savePaused ? "not-allowed" : "pointer",
+            outline: "none",
+          }}
+        >
+          <option value="">Select day description</option>
+          {DAY_DESCRIPTION_OPTIONS.map((opt) => (
+            <option key={`day-description-${crewId}-${dateISO}-${opt}`} value={opt}>
+              {opt}
+            </option>
+          ))}
+        </select>
+      </td>
+    );
+  };
+
+  const renderShiftCell = (
+    dateISO,
+    crewId,
+    span,
+    { keyPrefix = "shift", rowSpan = 1 } = {}
+  ) => {
+    const shift = getShift(dateISO, crewId) || {};
+    const startLabel = shift?.startTime ? formatShowTime(shift.startTime) : "";
+    const endLabel = shift?.endTime ? formatShowTime(shift.endTime) : "";
+    return (
+      <td
+        key={`${keyPrefix}-${crewId}-${dateISO}`}
+        rowSpan={rowSpan}
+        colSpan={span}
+        style={{
+          border: cellBorder,
+          background: ui.shiftBg,
+          padding: "1px 5px",
+          height: 21,
+        }}
+      >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 8px 1fr auto",
+            gap: 2,
+            alignItems: "center",
+          }}
+        >
+          <input
+            type="text"
+            list={TIME_DATALIST_ID}
+            disabled={savePaused}
+            value={getTimeInputValue(dateISO, crewId, "start", startLabel)}
+            onFocus={() => primeTimeDropdown(dateISO, crewId, "start")}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setTimeInputDraft(dateISO, crewId, "start", raw);
+              if (isKnownTimeOption(raw)) {
+                commitTimeInput(dateISO, crewId, "start", raw);
+              }
+            }}
+            onBlur={(e) => commitTimeInput(dateISO, crewId, "start", e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitTimeInput(dateISO, crewId, "start", e.currentTarget.value);
+                e.currentTarget.blur();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                clearTimeInputDraft(dateISO, crewId, "start");
+                e.currentTarget.blur();
+              }
+            }}
+            placeholder="IN"
+            style={{
+              height: "100%",
+              minHeight: 15,
+              minWidth: 0,
+              borderRadius: 0,
+              border: "none",
+              background: "transparent",
+              color: "#1a2740",
+              fontSize: 10,
+              fontWeight: 800,
+              padding: "0 8px 0 6px",
+              textAlign: "center",
+              fontVariantNumeric: "tabular-nums",
+              outline: "none",
+            }}
+          />
+
+          <div
+            aria-hidden
+            style={{
+              justifySelf: "center",
+              width: 1,
+              height: "75%",
+              background: "rgba(31,53,92,0.35)",
+              transform: "rotate(18deg)",
+              borderRadius: 1,
+            }}
+          />
+
+          <input
+            type="text"
+            list={TIME_DATALIST_ID}
+            disabled={savePaused}
+            value={getTimeInputValue(dateISO, crewId, "end", endLabel)}
+            onFocus={() => primeTimeDropdown(dateISO, crewId, "end")}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setTimeInputDraft(dateISO, crewId, "end", raw);
+              if (isKnownTimeOption(raw)) {
+                commitTimeInput(dateISO, crewId, "end", raw);
+              }
+            }}
+            onBlur={(e) => commitTimeInput(dateISO, crewId, "end", e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitTimeInput(dateISO, crewId, "end", e.currentTarget.value);
+                e.currentTarget.blur();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                clearTimeInputDraft(dateISO, crewId, "end");
+                e.currentTarget.blur();
+              }
+            }}
+            placeholder="OUT"
+            style={{
+              height: "100%",
+              minHeight: 15,
+              minWidth: 0,
+              borderRadius: 0,
+              border: "none",
+              background: "transparent",
+              color: "#1a2740",
+              fontSize: 10,
+              fontWeight: 800,
+              padding: "0 8px 0 6px",
+              textAlign: "center",
+              fontVariantNumeric: "tabular-nums",
+              outline: "none",
+            }}
+          />
+
+          <button
+            type="button"
+            disabled={savePaused}
+            onClick={() => handleClearDayForCrew(dateISO, crewId)}
+            title="Clear day"
+            aria-label="Clear day"
+            style={{
+              width: 18,
+              height: 18,
+              borderRadius: 999,
+              border: "1px solid #f2c7c3",
+              background: "#fff2f1",
+              color: "#7f1d1d",
+              fontSize: 10,
+              fontWeight: 900,
+              lineHeight: "16px",
+              padding: 0,
+              cursor: savePaused ? "not-allowed" : "pointer",
+            }}
+          >
+            ×
+          </button>
+        </div>
+      </td>
+    );
+  };
+
+  const renderTrackCells = (dateISO, crewId) => {
+    const slots = showSlotsForDate(dateISO);
+    const cols = colsForDate(dateISO);
+    const showCountForDay = getShowsForDate(dateISO).length;
+
+    return slots.map((slot, idx) => {
+      const canUse = slot?.kind === "show";
+      const showId = slot?.show?.id ?? null;
+      const hideGhostForSingleShow = !canUse && cols === 2 && showCountForDay === 1;
+
+      if (!canUse) {
+        return (
+          <td
+            key={`ghost-${crewId}-${dateISO}-${idx}`}
+            style={{
+              border: hideGhostForSingleShow
+                ? "1px solid transparent"
+                : `1px dashed ${ui.cellBorderSoft}`,
+              background: hideGhostForSingleShow ? ui.emptyDayBg : "#f8fbff",
+              padding: "2px",
+              height: 26,
+            }}
+          />
+        );
+      }
+
+      const working = isWorking(dateISO, crewId, showId);
+      const rawTrackId = getTrackId(dateISO, crewId, showId);
+      const trackId = Number(rawTrackId);
+      const assignmentValue = Number.isFinite(trackId) ? String(trackId) : "none";
+      const assignedTrackHex =
+        assignmentValue === "none" ? "" : trackColorById.get(trackId) || "";
+      const trackGlow = trackGlowFromHex(assignedTrackHex);
+
+      return (
+        <td
+          key={`show-${crewId}-${dateISO}-${showId ?? idx}`}
+          style={{
+            border:
+              working && assignmentValue !== "none" && trackGlow
+                ? `1px solid ${trackGlow.border}`
+                : cellBorder,
+            background: !working
+              ? ui.emptyDayBg
+              : assignmentValue === "none"
+              ? "#fff3f1"
+              : trackGlow
+              ? `linear-gradient(180deg, ${trackGlow.bg} 0%, rgba(255,255,255,0.92) 100%)`
+              : "#e7f6e9",
+            padding: "2px",
+            height: 26,
+            position: "relative",
+            boxShadow:
+              working && assignmentValue !== "none" && trackGlow
+                ? `0 0 0 1px ${trackGlow.inset} inset, 0 6px 14px ${trackGlow.shadow}`
+                : "none",
+          }}
+        >
+          {working ? (
+            <>
+              <select
+                disabled={savePaused}
+                value={assignmentValue}
+                onChange={(e) =>
+                  applyShowState(dateISO, crewId, showId, e.target.value)
+                }
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  minHeight: 20,
+                  minWidth: 0,
+                  borderRadius: 0,
+                  border: "none",
+                  background: "transparent",
+                  color: assignmentValue === "none" ? "#7f1d1d" : "#0d4f20",
+                  fontSize: 10,
+                  fontWeight: 800,
+                  padding: "0 16px 0 7px",
+                  boxShadow: "none",
+                  appearance: "none",
+                  WebkitAppearance: "none",
+                  MozAppearance: "none",
+                  textAlign: "center",
+                  textAlignLast: "center",
+                  cursor: savePaused ? "not-allowed" : "pointer",
+                  outline: "none",
+                }}
+              >
+                <option value="none">No track</option>
+                {trackOptions.map((t) => (
+                  <option key={`track-opt-${t.id}`} value={t.id}>
+                    {trackNameById.get(Number(t.id)) || t.name}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                disabled={savePaused}
+                onClick={() => setWorkingFor(dateISO, crewId, showId, false)}
+                title="Remove assignment"
+                aria-label="Remove assignment"
+                style={{
+                  position: "absolute",
+                  top: 3,
+                  right: 3,
+                  width: 12,
+                  height: 12,
+                  borderRadius: 999,
+                  border: "1px solid #f2c7c3",
+                  background: "#fff2f1",
+                  color: "#7f1d1d",
+                  fontSize: 8,
+                  fontWeight: 900,
+                  lineHeight: "10px",
+                  padding: 0,
+                  display: "grid",
+                  placeItems: "center",
+                  cursor: savePaused ? "not-allowed" : "pointer",
+                }}
+              >
+                ×
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={savePaused}
+              onClick={() => setWorkingFor(dateISO, crewId, showId, true)}
+              title="Add assignment"
+              aria-label="Add assignment"
+              style={{
+                position: "absolute",
+                inset: 0,
+                border: "none",
+                background: "transparent",
+                padding: 0,
+                cursor: savePaused ? "not-allowed" : "pointer",
+              }}
+            />
+          )}
+        </td>
+      );
+    });
   };
 
   if (!days.length) {
@@ -621,10 +1023,10 @@ export default function CrewSchedulesGridV2({
             <table
               style={{
                 width: "100%",
-                minWidth: 220 + totalShowCols * 145,
+                minWidth: 360 + totalShowCols * 118,
                 borderCollapse: "collapse",
                 tableLayout: "fixed",
-                fontSize: 11,
+                fontSize: 10.5,
               }}
             >
               <thead>
@@ -634,11 +1036,11 @@ export default function CrewSchedulesGridV2({
                     style={{
                       border: cellBorder,
                       background: ui.headerBg,
-                      padding: "9px 8px",
+                      padding: "8px 7px",
                       textTransform: "uppercase",
                       letterSpacing: "0.06em",
                       color: "#2a3652",
-                      width: 220,
+                      width: 192,
                       position: "sticky",
                       left: 0,
                       zIndex: 4,
@@ -654,9 +1056,9 @@ export default function CrewSchedulesGridV2({
                       style={{
                         border: cellBorder,
                         background: ui.headerBg,
-                        padding: "8px 6px",
+                        padding: "7px 5px",
                         textAlign: "center",
-                        fontSize: 11,
+                        fontSize: 10.5,
                         fontWeight: 900,
                         color: "#202d47",
                         letterSpacing: "0.01em",
@@ -665,6 +1067,23 @@ export default function CrewSchedulesGridV2({
                       {formatShortDay(dateISO)}
                     </th>
                   ))}
+                  <th
+                    rowSpan={2}
+                    style={{
+                      border: cellBorder,
+                      background: ui.headerBg,
+                      padding: "8px 6px",
+                      textAlign: "center",
+                      fontSize: 10.5,
+                      fontWeight: 900,
+                      color: "#202d47",
+                      letterSpacing: "0.02em",
+                      width: 168,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Weekly Hours
+                  </th>
                 </tr>
 
                 <tr>
@@ -686,7 +1105,7 @@ export default function CrewSchedulesGridV2({
                               ? "1px solid transparent"
                               : cellBorder,
                             background: hideGhostForSingleShow ? "#fff" : ui.headerSubBg,
-                            padding: "4px",
+                            padding: "3px",
                             textAlign: "center",
                             verticalAlign: "middle",
                           }}
@@ -710,8 +1129,8 @@ export default function CrewSchedulesGridV2({
                                     "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(245,249,255,0.98))",
                                   color: ui.controlText,
                                   fontWeight: 800,
-                                  fontSize: 10,
-                                  padding: "2px 9px",
+                                  fontSize: 9.5,
+                                  padding: "1px 8px",
                                   cursor: savePaused ? "not-allowed" : "pointer",
                                   boxShadow: "0 1px 0 rgba(255,255,255,0.8) inset",
                                 }}
@@ -729,12 +1148,12 @@ export default function CrewSchedulesGridV2({
                                   background: "#fff3f1",
                                   color: "#7f1d1d",
                                   fontWeight: 900,
-                                  fontSize: 10,
-                                  width: 18,
-                                  height: 18,
+                                  fontSize: 9,
+                                  width: 16,
+                                  height: 16,
                                   padding: 0,
                                   cursor: savePaused ? "not-allowed" : "pointer",
-                                  lineHeight: "16px",
+                                  lineHeight: "14px",
                                 }}
                                 title="Delete show"
                                 aria-label="Delete show"
@@ -753,8 +1172,8 @@ export default function CrewSchedulesGridV2({
                                 background: ui.plusBg,
                                 color: ui.plusText,
                                 fontWeight: 800,
-                                fontSize: 10,
-                                padding: "2px 9px",
+                                fontSize: 9.5,
+                                padding: "1px 8px",
                                 cursor: savePaused ? "not-allowed" : "pointer",
                               }}
                             >
@@ -773,7 +1192,7 @@ export default function CrewSchedulesGridV2({
                   <Fragment key={`dept-${group.dept}`}>
                     <tr>
                       <td
-                        colSpan={totalShowCols + 1}
+                        colSpan={totalShowCols + 2}
                         style={{
                           border: cellBorder,
                           background: ui.deptBg,
@@ -789,7 +1208,32 @@ export default function CrewSchedulesGridV2({
                       </td>
                     </tr>
 
-                    {group.people.map((crew) => (
+                    {group.people.map((crew) => {
+                      const employmentType =
+                        String(crew?.employment_type || crew?.employmentType || "")
+                          .trim()
+                          .toLowerCase() === "on-call"
+                          ? "On-Call"
+                          : "Full-Time";
+                      const weeklyTotals = getWeekHours(roster?.startISO, crew.id) || {
+                        totalHours: 0,
+                        paidHours: 0,
+                        leadHours: 0,
+                        regularHours: 0,
+                        regularOvertimeHours: 0,
+                        leadOvertimeHours: 0,
+                      };
+                      const paidHoursNumber = Number(weeklyTotals.paidHours);
+                      const paidHoursSafe = Number.isFinite(paidHoursNumber)
+                        ? paidHoursNumber
+                        : 0;
+                      const paidHoursColor =
+                        paidHoursSafe > 40
+                          ? "#b42318"
+                          : paidHoursSafe > 36
+                          ? "#b54708"
+                          : "#1f355c";
+                      return (
                       <Fragment key={`crew-${crew.id}`}>
                         <tr>
                           <td
@@ -797,7 +1241,7 @@ export default function CrewSchedulesGridV2({
                             style={{
                               border: cellBorder,
                               background: ui.crewBg,
-                              padding: "10px 10px 8px",
+                              padding: "8px 8px 7px",
                               position: "sticky",
                               left: 0,
                               zIndex: 2,
@@ -805,8 +1249,21 @@ export default function CrewSchedulesGridV2({
                               boxShadow: "2px 0 0 rgba(200, 212, 236, 0.85)",
                             }}
                           >
-                            <div style={{ fontSize: 14, fontWeight: 900, color: "#111827" }}>
+                            <div style={{ fontSize: 13, fontWeight: 900, color: "#111827" }}>
                               {crew.crew_name || "Crew"}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 9.5,
+                                fontWeight: 800,
+                                letterSpacing: "0.04em",
+                                textTransform: "uppercase",
+                                color:
+                                  employmentType === "On-Call" ? "#8b5a10" : "#4267a8",
+                                marginTop: 1,
+                              }}
+                            >
+                              {employmentType}
                             </div>
                             {crew?.is_department_lead ? (
                               <div
@@ -822,33 +1279,31 @@ export default function CrewSchedulesGridV2({
                                 Department Lead
                               </div>
                             ) : null}
-                            <div style={{ fontSize: 11, color: ui.muted, marginTop: 1 }}>
+                            <div style={{ fontSize: 10.5, color: ui.muted, marginTop: 1 }}>
                               {prettyDept(crew?.home_department)}
                             </div>
                           </td>
 
-                        {days.map((dateISO) => {
+                        {days.flatMap((dateISO) => {
                           const span = colsForDate(dateISO);
-                          const shift = getShift(dateISO, crew.id) || {};
-                          const startLabel = shift?.startTime
-                            ? formatShowTime(shift.startTime)
-                            : "";
-                          const endLabel = shift?.endTime
-                            ? formatShowTime(shift.endTime)
-                            : "";
                           const showDayDetail = showDayDetailForCrew(dateISO, crew.id);
                           const isOffDay = isOffDayForCrew(dateISO, crew.id);
+                          const isPtoDay = isPtoDayForCrew(dateISO, crew.id);
                           if (!showDayDetail) {
-                            return (
+                            return [
                               <td
                                 key={`off-day-${crew.id}-${dateISO}`}
                                 rowSpan={4}
                                 colSpan={span}
                                 style={{
                                   border: cellBorder,
-                                  background: isOffDay ? ui.offDayBg : ui.emptyDayBg,
-                                  padding: "4px",
-                                  height: 116,
+                                  background: isPtoDay
+                                    ? ui.ptoDayBg
+                                    : isOffDay
+                                    ? ui.offDayBg
+                                    : ui.emptyDayBg,
+                                  padding: "3px",
+                                  height: 82,
                                   position: "relative",
                                   verticalAlign: "top",
                                 }}
@@ -861,17 +1316,17 @@ export default function CrewSchedulesGridV2({
                                   aria-label="Add IN/OUT time"
                                   style={{
                                     position: "absolute",
-                                    top: 4,
-                                    left: 4,
-                                    width: 16,
-                                    height: 16,
+                                    top: 3,
+                                    left: 3,
+                                    width: 14,
+                                    height: 14,
                                     borderRadius: 999,
                                     border: `1px solid ${ui.plusBorder}`,
                                     background: ui.plusBg,
                                     color: ui.plusText,
-                                    fontSize: 12,
+                                    fontSize: 11,
                                     fontWeight: 900,
-                                    lineHeight: "14px",
+                                    lineHeight: "12px",
                                     padding: 0,
                                     display: "grid",
                                     placeItems: "center",
@@ -880,7 +1335,7 @@ export default function CrewSchedulesGridV2({
                                 >
                                   +
                                 </button>
-                                {isOffDay ? (
+                                {isOffDay || isPtoDay ? (
                                   <div
                                     style={{
                                       position: "absolute",
@@ -892,419 +1347,223 @@ export default function CrewSchedulesGridV2({
                                   >
                                     <span
                                       style={{
-                                        fontSize: 12,
+                                        fontSize: 11,
                                         fontWeight: 900,
                                         letterSpacing: "0.1em",
                                         textTransform: "uppercase",
-                                        color: "#5f687a",
+                                        color: isPtoDay ? "#1f6b3f" : "#5f687a",
                                       }}
                                     >
-                                      OFF
+                                      {isPtoDay ? "PTO" : "OFF"}
                                     </span>
                                   </div>
                                 ) : null}
-                              </td>
-                            );
+                              </td>,
+                            ];
                           }
 
-                          return (
-                            <td
-                              key={`shift-${crew.id}-${dateISO}`}
-                              colSpan={span}
+                          if (isWorkCallDayForCrew(dateISO, crew.id)) {
+                            return [
+                              renderShiftCell(dateISO, crew.id, span, {
+                                keyPrefix: "shift-workcall-top",
+                              }),
+                            ];
+                          }
+                          return [renderShiftCell(dateISO, crew.id, span, { keyPrefix: "shift-top" })];
+                        })}
+                          <td
+                            rowSpan={4}
+                            style={{
+                              border: cellBorder,
+                              background: ui.hoursBg,
+                              padding: "5px 7px",
+                              verticalAlign: "top",
+                            }}
+                          >
+                            <div
                               style={{
-                                border: cellBorder,
-                                background: ui.shiftBg,
-                                padding: "5px 6px",
-                                height: 34,
+                                display: "grid",
+                                gap: 5,
+                                fontSize: 10,
+                                color: "#4b556e",
+                                lineHeight: 1.2,
                               }}
                             >
                               <div
                                 style={{
-                                  display: "grid",
-                                  gridTemplateColumns: "1fr 1fr auto",
-                                  gap: 4,
-                                  alignItems: "center",
+                                  border: "1px solid rgba(31,53,92,0.14)",
+                                  borderRadius: 10,
+                                  background:
+                                    "linear-gradient(180deg, rgba(255,255,255,0.82), rgba(245,250,255,0.9))",
+                                  padding: "6px 6px 5px",
                                 }}
                               >
-                                <input
-                                  type="text"
-                                  list={TIME_DATALIST_ID}
-                                  disabled={savePaused}
-                                  value={getTimeInputValue(
-                                    dateISO,
-                                    crew.id,
-                                    "start",
-                                    startLabel
-                                  )}
-                                  onChange={(e) =>
-                                    (() => {
-                                      const raw = e.target.value;
-                                      setTimeInputDraft(
-                                        dateISO,
-                                        crew.id,
-                                        "start",
-                                        raw
-                                      );
-                                      if (isKnownTimeOption(raw)) {
-                                        commitTimeInput(dateISO, crew.id, "start", raw);
-                                      }
-                                    })()
-                                  }
-                                  onBlur={(e) =>
-                                    commitTimeInput(
-                                      dateISO,
-                                      crew.id,
-                                      "start",
-                                      e.target.value
-                                    )
-                                  }
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      commitTimeInput(
-                                        dateISO,
-                                        crew.id,
-                                        "start",
-                                        e.currentTarget.value
-                                      );
-                                      e.currentTarget.blur();
-                                    } else if (e.key === "Escape") {
-                                      e.preventDefault();
-                                      clearTimeInputDraft(dateISO, crew.id, "start");
-                                      e.currentTarget.blur();
-                                    }
-                                  }}
-                                  placeholder="IN"
+                                <div
                                   style={{
-                                    height: 24,
-                                    minWidth: 0,
-                                    borderRadius: 999,
-                                    border: `1px solid ${ui.controlBorder}`,
-                                    background:
-                                      "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,255,0.98))",
-                                    color: "#1a2740",
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    padding: "0 8px",
-                                    boxShadow: "0 1px 0 rgba(255,255,255,0.85) inset",
-                                  }}
-                                />
-
-                                <input
-                                  type="text"
-                                  list={TIME_DATALIST_ID}
-                                  disabled={savePaused}
-                                  value={getTimeInputValue(
-                                    dateISO,
-                                    crew.id,
-                                    "end",
-                                    endLabel
-                                  )}
-                                  onChange={(e) =>
-                                    (() => {
-                                      const raw = e.target.value;
-                                      setTimeInputDraft(
-                                        dateISO,
-                                        crew.id,
-                                        "end",
-                                        raw
-                                      );
-                                      if (isKnownTimeOption(raw)) {
-                                        commitTimeInput(dateISO, crew.id, "end", raw);
-                                      }
-                                    })()
-                                  }
-                                  onBlur={(e) =>
-                                    commitTimeInput(
-                                      dateISO,
-                                      crew.id,
-                                      "end",
-                                      e.target.value
-                                    )
-                                  }
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      commitTimeInput(
-                                        dateISO,
-                                        crew.id,
-                                        "end",
-                                        e.currentTarget.value
-                                      );
-                                      e.currentTarget.blur();
-                                    } else if (e.key === "Escape") {
-                                      e.preventDefault();
-                                      clearTimeInputDraft(dateISO, crew.id, "end");
-                                      e.currentTarget.blur();
-                                    }
-                                  }}
-                                  placeholder="OUT"
-                                  style={{
-                                    height: 24,
-                                    minWidth: 0,
-                                    borderRadius: 999,
-                                    border: `1px solid ${ui.controlBorder}`,
-                                    background:
-                                      "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,255,0.98))",
-                                    color: "#1a2740",
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    padding: "0 8px",
-                                    boxShadow: "0 1px 0 rgba(255,255,255,0.85) inset",
-                                  }}
-                                />
-
-                                <button
-                                  type="button"
-                                  disabled={savePaused}
-                                  onClick={() => handleClearDayForCrew(dateISO, crew.id)}
-                                  title="Clear day"
-                                  aria-label="Clear day"
-                                  style={{
-                                    width: 22,
-                                    height: 22,
-                                    borderRadius: 999,
-                                    border: "1px solid #f2c7c3",
-                                    background: "#fff2f1",
-                                    color: "#7f1d1d",
-                                    fontSize: 12,
-                                    fontWeight: 900,
-                                    lineHeight: "20px",
-                                    padding: 0,
-                                    cursor: savePaused ? "not-allowed" : "pointer",
+                                    fontSize: 9,
+                                    fontWeight: 800,
+                                    letterSpacing: "0.05em",
+                                    textTransform: "uppercase",
+                                    color: "#6b7388",
+                                    textAlign: "center",
                                   }}
                                 >
-                                  ×
-                                </button>
-                              </div>
-                            </td>
-                          );
-                        })}
-                        </tr>
-
-                        <tr>
-                          {days.flatMap((dateISO) => {
-                            if (!showDayDetailForCrew(dateISO, crew.id)) return [];
-                            const slots = showSlotsForDate(dateISO);
-                            const cols = colsForDate(dateISO);
-                            const showCountForDay = getShowsForDate(dateISO).length;
-                            return slots.map((slot, idx) => {
-                              const canUse = slot?.kind === "show";
-                              const showId = slot?.show?.id ?? null;
-                              const hideGhostForSingleShow =
-                                !canUse && cols === 2 && showCountForDay === 1;
-                              if (!canUse) {
-                                return (
-                                  <td
-                                    key={`ghost-${crew.id}-${dateISO}-${idx}`}
+                                  Paid Hours
+                                </div>
+                                <div
+                                  style={{
+                                    marginTop: 1,
+                                    display: "flex",
+                                    alignItems: "baseline",
+                                    justifyContent: "center",
+                                    gap: 3,
+                                  }}
+                                >
+                                  <span
                                     style={{
-                                      border: hideGhostForSingleShow
-                                        ? "1px solid transparent"
-                                        : `1px dashed ${ui.cellBorderSoft}`,
-                                      background:
-                                        hideGhostForSingleShow ? ui.emptyDayBg : "#f8fbff",
-                                      padding: "4px",
-                                      height: 32,
+                                      fontSize: 18,
+                                      lineHeight: 1,
+                                      fontWeight: 900,
+                                      color: paidHoursColor,
+                                      fontVariantNumeric: "tabular-nums",
                                     }}
-                                  />
-                                );
-                              }
+                                  >
+                                    {formatHours(weeklyTotals.paidHours)}
+                                  </span>
+                                </div>
+                              </div>
 
-                              const working = isWorking(dateISO, crew.id, showId);
-                              const rawTrackId = getTrackId(dateISO, crew.id, showId);
-                              const trackId = Number(rawTrackId);
-                              const assignmentValue = Number.isFinite(trackId)
-                                ? String(trackId)
-                                : "none";
-                              const assignedTrackHex =
-                                assignmentValue === "none"
-                                  ? ""
-                                  : trackColorById.get(trackId) || "";
-                              const trackGlow = trackGlowFromHex(assignedTrackHex);
-
-                              return (
-                                <td
-                                  key={`show-${crew.id}-${dateISO}-${showId ?? idx}`}
+                              <div
+                                style={{
+                                  borderTop: "1px solid rgba(31,53,92,0.12)",
+                                  paddingTop: 4,
+                                  display: "grid",
+                                  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                                  gap: 3,
+                                }}
+                              >
+                                <div
                                   style={{
-                                    border:
-                                      working && assignmentValue !== "none" && trackGlow
-                                        ? `1px solid ${trackGlow.border}`
-                                        : cellBorder,
-                                    background: !working
-                                      ? ui.emptyDayBg
-                                      : assignmentValue === "none"
-                                      ? "#fff3f1"
-                                      : trackGlow
-                                      ? `linear-gradient(180deg, ${trackGlow.bg} 0%, rgba(255,255,255,0.92) 100%)`
-                                      : "#e7f6e9",
-                                    padding: "3px",
-                                    height: 32,
-                                    position: "relative",
-                                    boxShadow:
-                                      working && assignmentValue !== "none" && trackGlow
-                                        ? `0 0 0 1px ${trackGlow.inset} inset, 0 6px 14px ${trackGlow.shadow}`
-                                        : "none",
+                                    display: "grid",
+                                    gap: 2,
+                                    minWidth: 0,
                                   }}
                                 >
-                                  {working ? (
-                                    <>
-                                      <select
-                                        disabled={savePaused}
-                                        value={assignmentValue}
-                                        onChange={(e) =>
-                                          applyShowState(dateISO, crew.id, showId, e.target.value)
-                                        }
-                                        style={{
-                                          width: "100%",
-                                          height: "100%",
-                                          minHeight: 24,
-                                          minWidth: 0,
-                                          borderRadius: 0,
-                                          border: "none",
-                                          background: "transparent",
-                                          color:
-                                            assignmentValue === "none"
-                                              ? "#7f1d1d"
-                                              : "#0d4f20",
-                                          fontSize: 11,
-                                          fontWeight: 800,
-                                          padding: "0 18px 0 8px",
-                                          boxShadow: "none",
-                                          appearance: "none",
-                                          WebkitAppearance: "none",
-                                          MozAppearance: "none",
-                                          textAlign: "center",
-                                          textAlignLast: "center",
-                                          cursor: savePaused ? "not-allowed" : "pointer",
-                                          outline: "none",
-                                        }}
-                                      >
-                                        <option value="none">No track</option>
-                                        {trackOptions.map((t) => (
-                                          <option key={`track-opt-${t.id}`} value={t.id}>
-                                            {trackNameById.get(Number(t.id)) || t.name}
-                                          </option>
-                                        ))}
-                                      </select>
-
-                                      <button
-                                        type="button"
-                                        disabled={savePaused}
-                                        onClick={() => setWorkingFor(dateISO, crew.id, showId, false)}
-                                        title="Remove assignment"
-                                        aria-label="Remove assignment"
-                                        style={{
-                                          position: "absolute",
-                                          top: 4,
-                                          right: 4,
-                                          width: 14,
-                                          height: 14,
-                                          borderRadius: 999,
-                                          border: "1px solid #f2c7c3",
-                                          background: "#fff2f1",
-                                          color: "#7f1d1d",
-                                          fontSize: 10,
-                                          fontWeight: 900,
-                                          lineHeight: "12px",
-                                          padding: 0,
-                                          display: "grid",
-                                          placeItems: "center",
-                                          cursor: savePaused ? "not-allowed" : "pointer",
-                                        }}
-                                      >
-                                        ×
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      disabled={savePaused}
-                                      onClick={() => setWorkingFor(dateISO, crew.id, showId, true)}
-                                      title="Add assignment"
-                                      aria-label="Add assignment"
+                                  <div
+                                    style={{
+                                      fontWeight: 700,
+                                      color: "#5b6479",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    Lead:{" "}
+                                    <span style={{ fontWeight: 900, color: "#1f355c" }}>
+                                      {formatHours(weeklyTotals.leadHours)}
+                                    </span>
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontWeight: 700,
+                                      color:
+                                        Number(weeklyTotals.leadOvertimeHours) > 0
+                                          ? "#9a3412"
+                                          : "#7b859d",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    L-OT:{" "}
+                                    <span
                                       style={{
-                                        position: "absolute",
-                                        top: 4,
-                                        left: 4,
-                                        width: 14,
-                                        height: 14,
-                                        borderRadius: 999,
-                                        border: `1px solid ${ui.plusBorder}`,
-                                        background: ui.plusBg,
-                                        color: ui.plusText,
-                                        fontSize: 10,
                                         fontWeight: 900,
-                                        lineHeight: "12px",
-                                        padding: 0,
-                                        display: "grid",
-                                        placeItems: "center",
-                                        cursor: savePaused ? "not-allowed" : "pointer",
+                                        color:
+                                          Number(weeklyTotals.leadOvertimeHours) > 0
+                                            ? "#9a3412"
+                                            : "#5b6479",
                                       }}
                                     >
-                                      +
-                                    </button>
-                                  )}
-                                </td>
-                              );
-                            });
-                          })}
-                        </tr>
-
-                        <tr>
-                          {days.flatMap((dateISO) => {
-                            if (!showDayDetailForCrew(dateISO, crew.id)) return [];
-                            const span = colsForDate(dateISO);
-                            const shift = getShift(dateISO, crew.id) || {};
-                            const dayDescription = String(
-                              shift?.dayDescription || ""
-                            ).trim();
-                            return [
-                              <td
-                                key={`desc-${crew.id}-${dateISO}`}
-                                colSpan={span}
-                                style={{
-                                  border: cellBorder,
-                                  background: ui.descriptionBg,
-                                  padding: "5px 6px",
-                                  height: 30,
-                                }}
-                              >
-                                <select
-                                  disabled={savePaused}
-                                  value={dayDescription}
-                                  onChange={(e) =>
-                                    handleDayDescriptionChange(
-                                      dateISO,
-                                      crew.id,
-                                      e.target.value || null
-                                    )
-                                  }
+                                      {formatHours(weeklyTotals.leadOvertimeHours)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div
                                   style={{
-                                    width: "100%",
-                                    height: 24,
+                                    display: "grid",
+                                    gap: 2,
                                     minWidth: 0,
-                                    borderRadius: 999,
-                                    border: `1px solid ${ui.controlBorder}`,
-                                    background:
-                                      "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,255,0.98))",
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    color: "#1a2740",
-                                    padding: "0 10px",
                                   }}
                                 >
-                                  <option value="">Select day description</option>
-                                  {DAY_DESCRIPTION_OPTIONS.map((opt) => (
-                                    <option
-                                      key={`day-description-${crew.id}-${dateISO}-${opt}`}
-                                      value={opt}
+                                  <div
+                                    style={{
+                                      fontWeight: 700,
+                                      color: "#5b6479",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    Regular:{" "}
+                                    <span style={{ fontWeight: 900, color: "#1f355c" }}>
+                                      {formatHours(weeklyTotals.regularHours)}
+                                    </span>
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontWeight: 700,
+                                      color:
+                                        Number(weeklyTotals.regularOvertimeHours) > 0
+                                          ? "#9a3412"
+                                          : "#7b859d",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    R-OT:{" "}
+                                    <span
+                                      style={{
+                                        fontWeight: 900,
+                                        color:
+                                          Number(weeklyTotals.regularOvertimeHours) > 0
+                                            ? "#9a3412"
+                                            : "#5b6479",
+                                      }}
                                     >
-                                      {opt}
-                                    </option>
-                                  ))}
-                                </select>
-                              </td>,
-                            ];
+                                      {formatHours(weeklyTotals.regularOvertimeHours)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                            </div>
+                          </td>
+                        </tr>
+
+                        <tr>
+                          {days.flatMap((dateISO) => {
+                            if (!showDayDetailForCrew(dateISO, crew.id)) return [];
+                            const span = colsForDate(dateISO);
+                            const showTrackRow = shouldShowTrackRowForCrewDay(
+                              dateISO,
+                              crew.id
+                            );
+                            if (!showTrackRow) {
+                              return [
+                                renderDescriptionCell(dateISO, crew.id, span, {
+                                  keyPrefix: isWorkCallDayForCrew(dateISO, crew.id)
+                                    ? "desc-workcall"
+                                    : "desc-pending",
+                                  rowSpan: 2,
+                                  height: 50,
+                                  minHeight: 44,
+                                }),
+                              ];
+                            }
+                            return renderTrackCells(dateISO, crew.id);
+                          })}
+                        </tr>
+
+                        <tr>
+                          {days.flatMap((dateISO) => {
+                            if (!showDayDetailForCrew(dateISO, crew.id)) return [];
+                            if (!shouldShowTrackRowForCrewDay(dateISO, crew.id)) return [];
+                            const span = colsForDate(dateISO);
+                            return [renderDescriptionCell(dateISO, crew.id, span)];
                           })}
                         </tr>
 
@@ -1312,46 +1571,76 @@ export default function CrewSchedulesGridV2({
                           {days.flatMap((dateISO) => {
                             if (!showDayDetailForCrew(dateISO, crew.id)) return [];
                             const span = colsForDate(dateISO);
-                            const shift = getShift(dateISO, crew.id) || {};
                             const dbHours = getDayHours(dateISO, crew.id);
                             const paidTotal = Number(dbHours?.totalHours);
                             const hasPaidTotal = Number.isFinite(paidTotal) && paidTotal > 0;
-                            const workedTotal = shiftDurationHours(
-                              shift?.startTime || null,
-                              shift?.endTime || null
-                            );
+                            const workedTotal = Number(dbHours?.workedHours);
                             const hasWorkedTotal =
                               Number.isFinite(workedTotal) && workedTotal > 0;
-                            const unpaidHoursRaw =
-                              Number.isFinite(workedTotal) && hasPaidTotal
-                                ? Math.max(0, workedTotal - paidTotal)
-                                : null;
-                            const unpaidHours =
-                              Number.isFinite(unpaidHoursRaw)
-                                ? Math.round(unpaidHoursRaw * 100) / 100
-                                : null;
-                            const lead = dbHours?.leadHours ?? null;
-                            const hours = dbHours?.regularHours ?? null;
-                            const regularOvertime =
-                              dbHours?.regularOvertimeHours ?? null;
-                            const leadOvertime = dbHours?.leadOvertimeHours ?? null;
-                            const visibleHourItems = [
-                              { key: "lead", label: "Lead", value: lead },
-                              { key: "hours", label: "Hours", value: hours },
-                              {
-                                key: "r-ot",
-                                label: "R-OT",
-                                value: regularOvertime,
-                              },
-                              {
-                                key: "l-ot",
-                                label: "L-OT",
-                                value: leadOvertime,
-                              },
-                            ].filter((item) => {
-                              const n = Number(item.value);
-                              return Number.isFinite(n) && n > 0;
-                            });
+                            const leadValue = Number(dbHours?.leadHours);
+                            const regularValue = Number(dbHours?.regularHours);
+                            const regularOvertimeValue = Number(
+                              dbHours?.regularOvertimeHours
+                            );
+                            const leadOvertimeValue = Number(dbHours?.leadOvertimeHours);
+                            const showLeadOvertime =
+                              Number.isFinite(leadOvertimeValue) &&
+                              leadOvertimeValue > 0;
+                            const showRegularOvertime =
+                              Number.isFinite(regularOvertimeValue) &&
+                              regularOvertimeValue > 0;
+                            const normalizedLeadValue = Number.isFinite(leadValue)
+                              ? leadValue
+                              : 0;
+                            const showLead = normalizedLeadValue > 0 || showLeadOvertime;
+                            const showRegular =
+                              Number.isFinite(regularValue) && regularValue > 0;
+                            const leadPaidTotal =
+                              (Number.isFinite(leadValue) ? leadValue : 0) +
+                              (Number.isFinite(leadOvertimeValue)
+                                ? leadOvertimeValue
+                                : 0);
+                            const regularPaidTotal =
+                              (Number.isFinite(regularValue) ? regularValue : 0) +
+                              (Number.isFinite(regularOvertimeValue)
+                                ? regularOvertimeValue
+                                : 0);
+                            const paidHoursForRole = Number.isFinite(paidTotal)
+                              ? paidTotal
+                              : leadPaidTotal + regularPaidTotal;
+                            const isDepartmentLead = !!crew?.is_department_lead;
+                            const isFullLeadShift =
+                              !isDepartmentLead &&
+                              leadPaidTotal > 0 &&
+                              regularPaidTotal <= 0.0001 &&
+                              paidHoursForRole > 0;
+                            const isPartialLeadShift =
+                              !isDepartmentLead &&
+                              leadPaidTotal > 0 &&
+                              !isFullLeadShift;
+                            const isStandardRate =
+                              !isDepartmentLead &&
+                              leadPaidTotal <= 0.0001 &&
+                              regularPaidTotal > 0;
+                            const dayLeadRoleLabel = isDepartmentLead
+                              ? "LEAD"
+                              : isFullLeadShift
+                              ? "Full LEAD Rate"
+                              : isPartialLeadShift
+                              ? "Partial LEAD Rate"
+                              : isStandardRate
+                              ? "Standard Rate"
+                              : "";
+                            const hasAnyBreakdown =
+                              showLead ||
+                              showRegular ||
+                              showRegularOvertime ||
+                              showLeadOvertime;
+                            const hasLeadColumn = showLead || showLeadOvertime;
+                            const hasRegularColumn =
+                              showRegular || showRegularOvertime;
+                            const showBothBreakdownColumns =
+                              hasLeadColumn && hasRegularColumn;
                             return [
                               <td
                                 key={`hours-${crew.id}-${dateISO}`}
@@ -1359,138 +1648,172 @@ export default function CrewSchedulesGridV2({
                                 style={{
                                   border: cellBorder,
                                   background: ui.hoursBg,
-                                  padding: "4px 8px 6px",
-                                  minHeight: 28,
+                                  padding: "2px 6px 3px",
+                                  minHeight: 22,
                                 }}
                               >
-                                <div
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: visibleHourItems.length
-                                      ? `repeat(${visibleHourItems.length}, minmax(0, 1fr))`
-                                      : "1fr",
-                                    gap: 0,
-                                    alignItems: "center",
-                                    fontSize: 11,
-                                    color: "#4b556e",
-                                  }}
-                                >
-                                  {visibleHourItems.map((item, idx) => {
-                                    const n = Number(item.value);
-                                    const isOvertime = item.key === "r-ot" || item.key === "l-ot";
-                                    const isHot = isOvertime && n > 0;
-                                    const justifyContent =
-                                      visibleHourItems.length === 1
-                                        ? "center"
-                                        : idx === 0
-                                        ? "flex-start"
-                                        : idx === visibleHourItems.length - 1
-                                        ? "flex-end"
-                                        : "center";
-                                    return (
-                                      <div
-                                        key={`${crew.id}-${dateISO}-${item.key}`}
-                                        style={{
-                                          padding: "0 8px",
-                                          display: "flex",
-                                          alignItems: "center",
-                                          justifyContent,
-                                          gap: 4,
-                                          minWidth: 0,
-                                          borderLeft:
-                                            idx === 0
-                                              ? "none"
-                                              : "1px solid rgba(31,53,92,0.12)",
-                                        }}
-                                      >
-                                        <span
-                                          style={{
-                                            fontWeight: 800,
-                                            color: isHot
-                                              ? "#9a3412"
-                                              : "#5b6479",
-                                            minWidth: 0,
-                                            overflow: "hidden",
-                                            textOverflow: "ellipsis",
-                                            whiteSpace: "nowrap",
-                                          }}
-                                        >
-                                          {item.label}:
-                                        </span>{" "}
-                                        <span
-                                          style={{
-                                            fontWeight: 900,
-                                            color: isHot
-                                              ? "#9a3412"
-                                              : "#1f355c",
-                                            flexShrink: 0,
-                                            whiteSpace: "nowrap",
-                                          }}
-                                        >
-                                          {formatHours(item.value)}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                                {hasPaidTotal || hasWorkedTotal ? (
+                                {dayLeadRoleLabel ? (
                                   <div
                                     style={{
-                                      marginTop: 4,
-                                      paddingTop: 4,
-                                      borderTop: "1px solid rgba(31,53,92,0.12)",
-                                      display: "grid",
-                                      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                                      marginBottom: 2,
+                                      paddingBottom: 2,
+                                      borderBottom: "1px solid rgba(31,53,92,0.12)",
+                                      display: "flex",
                                       alignItems: "center",
-                                      gap: 8,
-                                      fontSize: 11,
+                                      justifyContent: "center",
+                                      fontSize: 9.5,
+                                      fontWeight: 800,
+                                      letterSpacing: "0.02em",
+                                      color: "#334a70",
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                    title={dayLeadRoleLabel}
+                                  >
+                                    {dayLeadRoleLabel}
+                                  </div>
+                                ) : null}
+                                {hasAnyBreakdown || hasWorkedTotal || hasPaidTotal ? (
+                                  <div
+                                    style={{
+                                      marginBottom: 2,
+                                      paddingBottom: 2,
+                                      borderBottom: "1px solid rgba(31,53,92,0.12)",
+                                      fontSize: 10,
                                       color: "#5b6479",
+                                      display: "grid",
+                                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                                      gap: 4,
+                                      alignItems: "start",
                                     }}
                                   >
-                                    <span
-                                      style={{
-                                        fontWeight: 800,
-                                        whiteSpace: "nowrap",
-                                        textAlign: "left",
-                                      }}
-                                    >
+                                    <div style={{ fontWeight: 800, whiteSpace: "nowrap" }}>
                                       Total Hours:{" "}
                                       <span style={{ fontWeight: 900, color: "#1f355c" }}>
                                         {formatHours(hasWorkedTotal ? workedTotal : null)}
                                       </span>
-                                    </span>
-                                    <span
+                                    </div>
+                                    <div
                                       style={{
                                         fontWeight: 800,
                                         whiteSpace: "nowrap",
-                                        textAlign: "center",
+                                        borderLeft: "1px solid rgba(31,53,92,0.12)",
+                                        paddingLeft: 6,
                                       }}
                                     >
-                                      Paid Total:{" "}
+                                      Paid Hours:{" "}
                                       <span style={{ fontWeight: 900, color: "#1f355c" }}>
                                         {formatHours(hasPaidTotal ? paidTotal : null)}
                                       </span>
-                                    </span>
-                                    <span
-                                      style={{
-                                        fontWeight: 800,
-                                        whiteSpace: "nowrap",
-                                        textAlign: "right",
-                                      }}
-                                    >
-                                      Unpaid:{" "}
-                                      <span style={{ fontWeight: 900, color: "#374151" }}>
-                                        {formatHours(unpaidHours)}
-                                      </span>
-                                    </span>
+                                    </div>
                                   </div>
                                 ) : null}
+                                <div
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: showBothBreakdownColumns
+                                      ? "repeat(2, minmax(0, 1fr))"
+                                      : "1fr",
+                                    gap: 4,
+                                    alignItems: "start",
+                                    fontSize: 10,
+                                    color: "#4b556e",
+                                  }}
+                                >
+                                  {hasLeadColumn ? (
+                                    <div style={{ display: "grid", gap: 1, minWidth: 0 }}>
+                                      {showLead ? (
+                                        <div
+                                          style={{
+                                            fontWeight: 800,
+                                            color: "#5b6479",
+                                            whiteSpace: "nowrap",
+                                          }}
+                                        >
+                                          Lead:{" "}
+                                          <span style={{ fontWeight: 900, color: "#1f355c" }}>
+                                            {formatHours(normalizedLeadValue)}
+                                          </span>
+                                        </div>
+                                      ) : null}
+                                      {showLeadOvertime ? (
+                                        <div
+                                          style={{
+                                            fontWeight: 800,
+                                            color: "#9a3412",
+                                            whiteSpace: "nowrap",
+                                          }}
+                                        >
+                                          L-OT:{" "}
+                                          <span
+                                            style={{
+                                              fontWeight: 900,
+                                              color: "#9a3412",
+                                            }}
+                                          >
+                                            {formatHours(leadOvertimeValue)}
+                                          </span>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+
+                                  {hasRegularColumn ? (
+                                    <div
+                                      style={{
+                                        display: "grid",
+                                        gap: 1,
+                                        minWidth: 0,
+                                        borderLeft: hasLeadColumn
+                                          ? "1px solid rgba(31,53,92,0.12)"
+                                          : "none",
+                                        paddingLeft: hasLeadColumn ? 6 : 0,
+                                      }}
+                                    >
+                                      {showRegular ? (
+                                        <div
+                                          style={{
+                                            fontWeight: 800,
+                                            color: "#5b6479",
+                                            whiteSpace: "nowrap",
+                                          }}
+                                        >
+                                          Regular:{" "}
+                                          <span style={{ fontWeight: 900, color: "#1f355c" }}>
+                                            {formatHours(regularValue)}
+                                          </span>
+                                        </div>
+                                      ) : null}
+                                      {showRegularOvertime ? (
+                                        <div
+                                          style={{
+                                            fontWeight: 800,
+                                            color: "#9a3412",
+                                            whiteSpace: "nowrap",
+                                          }}
+                                        >
+                                          R-OT:{" "}
+                                          <span
+                                            style={{
+                                              fontWeight: 900,
+                                              color: "#9a3412",
+                                            }}
+                                          >
+                                            {formatHours(regularOvertimeValue)}
+                                          </span>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+                                </div>
                               </td>,
                             ];
                           })}
                         </tr>
                       </Fragment>
-                    ))}
+                      );
+                    })}
                   </Fragment>
                 ))}
               </tbody>

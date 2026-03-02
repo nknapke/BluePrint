@@ -21,6 +21,7 @@ import { useLocation } from "./context/LocationContext";
 import { useDataLoaders } from "./hooks/useDataLoaders";
 import { useHistoryModal } from "./hooks/useHistoryModal";
 import { useMarkComplete } from "./hooks/useMarkComplete";
+import { getCrewScheduleDeptGroupLabel } from "./utils/strings";
 import type {
   Crew,
   Requirement,
@@ -62,6 +63,7 @@ export default function App() {
   const S = useMemo(() => createStyles(), []);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [plannerRefreshSignal, setPlannerRefreshSignal] = useState(0);
+  const [crewScheduleDepartmentTab, setCrewScheduleDepartmentTab] = useState("ALL");
 
   useEffect(() => {
     document.title = "BluePrint";
@@ -200,6 +202,8 @@ export default function App() {
     setEditCrewDept,
     editCrewStatus,
     setEditCrewStatus,
+    editCrewEmploymentType,
+    setEditCrewEmploymentType,
     editCrewLead,
     setEditCrewLead,
     editCrewOffDay1,
@@ -786,12 +790,29 @@ export default function App() {
       setAddingCrew(true);
       setCrewError("");
 
-      await supabasePost("/rest/v1/crew_roster", {
-        crew_name,
-        home_department,
-        status,
-        location_id: activeLocationId,
-      });
+      try {
+        await supabasePost("/rest/v1/crew_roster", {
+          crew_name,
+          home_department,
+          status,
+          employment_type: "Full-Time",
+          location_id: activeLocationId,
+        });
+      } catch (insertErr) {
+        const msg = getErrorMessage(insertErr).toLowerCase();
+        const missingEmploymentCol =
+          msg.includes("employment_type") ||
+          msg.includes("42703") ||
+          msg.includes("column");
+        if (!missingEmploymentCol) throw insertErr;
+
+        await supabasePost("/rest/v1/crew_roster", {
+          crew_name,
+          home_department,
+          status,
+          location_id: activeLocationId,
+        });
+      }
 
       invalidateMany(["/rest/v1/crew_roster"]);
       await loadCrew(true);
@@ -1047,6 +1068,9 @@ export default function App() {
     setEditCrewName(c.name || "");
     setEditCrewDept(c.dept || "");
     setEditCrewStatus(c.active ? "Active" : "Not Active");
+    setEditCrewEmploymentType(
+      c.employmentType === "On-Call" ? "On-Call" : "Full-Time"
+    );
     setEditCrewLead(!!c.isDepartmentLead);
     setEditCrewOffDay1(
       c.weeklyOffDay1 == null || !Number.isFinite(Number(c.weeklyOffDay1))
@@ -1065,6 +1089,7 @@ export default function App() {
     setEditCrewName("");
     setEditCrewDept("");
     setEditCrewStatus("Active");
+    setEditCrewEmploymentType("Full-Time");
     setEditCrewLead(false);
     setEditCrewOffDay1("");
     setEditCrewOffDay2("");
@@ -1078,6 +1103,8 @@ export default function App() {
     }
     const newDept = (editCrewDept || "").trim();
     const newStatus = editCrewStatus === "Not Active" ? "Not Active" : "Active";
+    const newEmploymentType =
+      editCrewEmploymentType === "On-Call" ? "On-Call" : "Full-Time";
     const parsedOffDay1 =
       editCrewOffDay1 === ""
         ? null
@@ -1116,36 +1143,57 @@ export default function App() {
 
     setEditCrewSaving(true);
     try {
+      const basePayload = {
+        crew_name: newName,
+        home_department: newDept,
+        status: newStatus,
+      };
+      const withLeadPayload = {
+        ...basePayload,
+        is_department_lead: !!editCrewLead,
+      };
+      const withEmploymentPayload = {
+        ...withLeadPayload,
+        employment_type: newEmploymentType,
+      };
+      const fullPayload = {
+        ...withEmploymentPayload,
+        weekly_off_day_1: parsedOffDay1,
+        weekly_off_day_2: parsedOffDay2,
+      };
+
       try {
-        await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, {
-          crew_name: newName,
-          home_department: newDept,
-          status: newStatus,
-          is_department_lead: !!editCrewLead,
-          weekly_off_day_1: parsedOffDay1,
-          weekly_off_day_2: parsedOffDay2,
-        });
+        await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, fullPayload);
       } catch (firstErr) {
         const msg = getErrorMessage(firstErr).toLowerCase();
         const missingWeeklyCols =
           msg.includes("weekly_off_day_1") || msg.includes("weekly_off_day_2");
         const missingLeadCol = msg.includes("is_department_lead");
+        const missingEmploymentCol = msg.includes("employment_type");
         const missingColumn = msg.includes("42703") || msg.includes("column");
-        if (!missingColumn && !missingLeadCol && !missingWeeklyCols) throw firstErr;
+        if (
+          !missingColumn &&
+          !missingLeadCol &&
+          !missingWeeklyCols &&
+          !missingEmploymentCol
+        ) {
+          throw firstErr;
+        }
 
-        if (missingWeeklyCols && !missingLeadCol) {
+        if (missingLeadCol) {
+          await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, basePayload);
+        } else if (missingWeeklyCols && missingEmploymentCol) {
+          await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, withLeadPayload);
+        } else if (missingWeeklyCols) {
+          await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, withEmploymentPayload);
+        } else if (missingEmploymentCol) {
           await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, {
-            crew_name: newName,
-            home_department: newDept,
-            status: newStatus,
-            is_department_lead: !!editCrewLead,
+            ...withLeadPayload,
+            weekly_off_day_1: parsedOffDay1,
+            weekly_off_day_2: parsedOffDay2,
           });
         } else {
-          await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, {
-            crew_name: newName,
-            home_department: newDept,
-            status: newStatus,
-          });
+          await supabasePatch(`/rest/v1/crew_roster?id=eq.${c.id}`, withLeadPayload);
         }
       }
 
@@ -1867,6 +1915,31 @@ export default function App() {
     historyContext?.trackName || ""
   }`;
   const isCrewSchedulesTab = activeTab === "crewSchedules";
+  const crewScheduleDepartmentTabs = useMemo(() => {
+    const seen = new Set<string>();
+    const values = [{ value: "ALL", label: "All Departments" }];
+    for (const c of crew) {
+      const label = getCrewScheduleDeptGroupLabel(c?.dept);
+      const key = String(label || "").trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      values.push({ value: key, label: key });
+    }
+    return values.sort((a, b) => {
+      if (a.value === "ALL") return -1;
+      if (b.value === "ALL") return 1;
+      return String(a.label).localeCompare(String(b.label));
+    });
+  }, [crew]);
+
+  useEffect(() => {
+    if (crewScheduleDepartmentTab === "ALL") return;
+    const exists = crewScheduleDepartmentTabs.some(
+      (tab) => tab.value === crewScheduleDepartmentTab
+    );
+    if (!exists) setCrewScheduleDepartmentTab("ALL");
+  }, [crewScheduleDepartmentTab, crewScheduleDepartmentTabs]);
+
   const shellStyle = isCrewSchedulesTab
     ? {
         ...S.shell,
@@ -1955,6 +2028,13 @@ export default function App() {
           setActiveTab={setActiveTab}
           tabLabel={tabLabel}
           wide={isCrewSchedulesTab}
+          secondaryTabs={isCrewSchedulesTab ? crewScheduleDepartmentTabs : []}
+          activeSecondaryTab={
+            isCrewSchedulesTab ? crewScheduleDepartmentTab : undefined
+          }
+          setActiveSecondaryTab={
+            isCrewSchedulesTab ? setCrewScheduleDepartmentTab : undefined
+          }
         />
 
         <div style={S.contentGrid}>
@@ -1984,6 +2064,8 @@ export default function App() {
               setEditCrewDept={setEditCrewDept}
               editCrewStatus={editCrewStatus}
               setEditCrewStatus={setEditCrewStatus}
+              editCrewEmploymentType={editCrewEmploymentType}
+              setEditCrewEmploymentType={setEditCrewEmploymentType}
               editCrewLead={editCrewLead}
               setEditCrewLead={setEditCrewLead}
               editCrewOffDay1={editCrewOffDay1}
@@ -2148,6 +2230,7 @@ export default function App() {
               supabasePost={supabasePost}
               supabasePatch={supabasePatch}
               supabaseDelete={supabaseDelete}
+              departmentFilter={crewScheduleDepartmentTab}
               tracks={tracks}
             />
           )}

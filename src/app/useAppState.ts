@@ -86,6 +86,8 @@ export function useAppState() {
   const [editCrewName, setEditCrewName] = useState("");
   const [editCrewDept, setEditCrewDept] = useState("");
   const [editCrewStatus, setEditCrewStatus] = useState("Active");
+  const [editCrewEmploymentType, setEditCrewEmploymentType] =
+    useState("Full-Time");
   const [editCrewLead, setEditCrewLead] = useState(false);
   const [editCrewOffDay1, setEditCrewOffDay1] = useState("");
   const [editCrewOffDay2, setEditCrewOffDay2] = useState("");
@@ -246,6 +248,8 @@ export function useAppState() {
     setEditCrewDept,
     editCrewStatus,
     setEditCrewStatus,
+    editCrewEmploymentType,
+    setEditCrewEmploymentType,
     editCrewLead,
     setEditCrewLead,
     editCrewOffDay1,

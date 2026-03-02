@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { normalizeHex, trackGlowFromHex } from "../../utils/colors";
 import { formatLongDate } from "../../utils/dates";
-import { prettyDept } from "../../utils/strings";
+import { matchesCrewScheduleDeptFilter, prettyDept } from "../../utils/strings";
 
 const EMPTY_ARRAY = [];
 
@@ -69,6 +69,7 @@ export default function CrewSchedulesDayView({
   roster,
   dateISO,
   search,
+  departmentFilter = "ALL",
   tracks = [],
 }) {
   const savePaused = !!roster?.savePaused;
@@ -165,13 +166,16 @@ export default function CrewSchedulesDayView({
     const q = String(search || "")
       .toLowerCase()
       .trim();
-    if (!q) return crew;
     return crew.filter((c) => {
+      if (!matchesCrewScheduleDeptFilter(c?.home_department, departmentFilter)) {
+        return false;
+      }
+      if (!q) return true;
       const name = String(c.crew_name || "").toLowerCase();
       const dept = String(c.home_department || "").toLowerCase();
       return name.includes(q) || dept.includes(q);
     });
-  }, [roster?.crew, search]);
+  }, [roster?.crew, search, departmentFilter]);
 
   const grouped = useMemo(() => {
     const map = new Map();

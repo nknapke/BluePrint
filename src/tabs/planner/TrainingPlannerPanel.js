@@ -871,7 +871,15 @@ export default function TrainingPlannerPanel({
       .reason-line { margin-bottom: 4px; }
       .reason-sub { margin-left: 16px; }
       .reason-none { color: #777; font-style: italic; }
-      @media print { body { padding: 0; } }
+      @media print {
+        body { padding: 0; }
+        .crew-need {
+          background: rgba(255, 196, 92, 0.34);
+          border: 1px solid rgba(188, 102, 22, 0.9);
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+      }
     </style>
   </head>
   <body>

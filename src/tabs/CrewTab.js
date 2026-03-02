@@ -16,6 +16,33 @@ const WEEKDAY_OPTIONS = [
   { value: "6", label: "Saturday" },
 ];
 
+const EMPLOYMENT_TYPE_OPTIONS = [
+  { value: "Full-Time", label: "Full-Time" },
+  { value: "On-Call", label: "On-Call" },
+];
+
+function employmentSortRank(crew) {
+  const value = String(crew?.employmentType || crew?.employment_type || "")
+    .trim()
+    .toLowerCase();
+  if (value === "on-call" || value === "on call" || value === "oncall") return 1;
+  return 0;
+}
+
+function compareCrewForDisplay(a, b) {
+  const leadRankA = a?.isDepartmentLead ? 0 : 1;
+  const leadRankB = b?.isDepartmentLead ? 0 : 1;
+  if (leadRankA !== leadRankB) return leadRankA - leadRankB;
+
+  const employmentRankA = employmentSortRank(a);
+  const employmentRankB = employmentSortRank(b);
+  if (employmentRankA !== employmentRankB) {
+    return employmentRankA - employmentRankB;
+  }
+
+  return String(a?.name || "").localeCompare(String(b?.name || ""));
+}
+
 function GroupHeaderIOS({ title, subtitle, open, onToggle }) {
   return (
     <button
@@ -163,8 +190,22 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast, deptOptions }) {
                 placeholder="Name"
               />
             ) : (
-              <div style={{ display: "grid", gap: c.isDepartmentLead ? 2 : 0 }}>
+              <div style={{ display: "grid", gap: 2 }}>
                 <span>{c.name}</span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.02em",
+                    textTransform: "uppercase",
+                    color:
+                      c.employmentType === "On-Call"
+                        ? "rgba(255,204,136,0.9)"
+                        : "rgba(180,214,255,0.86)",
+                  }}
+                >
+                  {c.employmentType === "On-Call" ? "On-Call" : "Full-Time"}
+                </span>
                 {c.isDepartmentLead ? (
                   <span
                     style={{
@@ -217,6 +258,18 @@ function CrewRowCard({ S, c, edit, actions, isFirst, isLast, deptOptions }) {
             >
               <option value="Active">Active</option>
               <option value="Not Active">Not Active</option>
+            </select>
+
+            <select
+              value={edit.editCrewEmploymentType || "Full-Time"}
+              onChange={(e) => edit.setEditCrewEmploymentType(e.target.value)}
+              style={{ ...S.select, width: 160 }}
+            >
+              {EMPLOYMENT_TYPE_OPTIONS.map((opt) => (
+                <option key={`employment-type-${opt.value}`} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
 
             <label
@@ -352,6 +405,8 @@ export default function CrewTab({
   setEditCrewDept,
   editCrewStatus,
   setEditCrewStatus,
+  editCrewEmploymentType,
+  setEditCrewEmploymentType,
   editCrewLead,
   setEditCrewLead,
   editCrewOffDay1,
@@ -409,9 +464,7 @@ export default function CrewTab({
     }
 
     const groups = Array.from(map.entries()).map(([dept, items]) => {
-      const sorted = [...items].sort((a, b) =>
-        String(a.name || "").localeCompare(String(b.name || ""))
-      );
+      const sorted = [...items].sort(compareCrewForDisplay);
 
       return {
         key: dept,
@@ -670,6 +723,8 @@ export default function CrewTab({
     setEditCrewDept,
     editCrewStatus,
     setEditCrewStatus,
+    editCrewEmploymentType,
+    setEditCrewEmploymentType,
     editCrewLead,
     setEditCrewLead,
     editCrewOffDay1,

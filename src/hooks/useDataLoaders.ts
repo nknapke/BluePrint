@@ -99,6 +99,7 @@ type CrewRow = {
   crew_name: string;
   home_department: string;
   status: string;
+  employment_type?: string | null;
   is_department_lead?: boolean | string | number | null;
   weekly_off_day_1?: number | null;
   weekly_off_day_2?: number | null;
@@ -181,6 +182,17 @@ function getErrorMessage(e: unknown) {
 
 function isTruthyFlag(value: unknown) {
   return value === true || value === "true" || value === "t" || value === 1;
+}
+
+function normalizeEmploymentType(value: unknown): "Full-Time" | "On-Call" {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "Full-Time";
+  if (normalized === "on-call" || normalized === "on call" || normalized === "oncall") {
+    return "On-Call";
+  }
+  return "Full-Time";
 }
 
 export function useDataLoaders({
@@ -392,9 +404,13 @@ export function useDataLoaders({
         });
       }
 
-      const withLeadPath =
+      const withMetaPath =
+        "/rest/v1/crew_roster?select=id,crew_name,home_department,status,employment_type,is_department_lead,weekly_off_day_1,weekly_off_day_2,location_id&order=crew_name.asc";
+      const withMetaNoEmploymentPath =
         "/rest/v1/crew_roster?select=id,crew_name,home_department,status,is_department_lead,weekly_off_day_1,weekly_off_day_2,location_id&order=crew_name.asc";
       const withLeadOnlyPath =
+        "/rest/v1/crew_roster?select=id,crew_name,home_department,status,employment_type,is_department_lead,location_id&order=crew_name.asc";
+      const withLeadOnlyNoEmploymentPath =
         "/rest/v1/crew_roster?select=id,crew_name,home_department,status,is_department_lead,location_id&order=crew_name.asc";
       const legacyPath =
         "/rest/v1/crew_roster?select=id,crew_name,home_department,status,location_id&order=crew_name.asc";
@@ -402,18 +418,44 @@ export function useDataLoaders({
       try {
         let rows: CrewRow[] = [];
         try {
-          rows = await supabaseGet(withLoc(withLeadPath), cacheTag ? { cacheTag } : undefined);
+          rows = await supabaseGet(
+            withLoc(withMetaPath),
+            cacheTag ? { cacheTag } : undefined
+          );
         } catch (firstErr) {
           const msg = getErrorMessage(firstErr).toLowerCase();
           const missingWeeklyCols =
             msg.includes("weekly_off_day_1") || msg.includes("weekly_off_day_2");
           const missingLeadCol = msg.includes("is_department_lead");
+          const missingEmploymentCol = msg.includes("employment_type");
           const missingColumn = msg.includes("42703") || msg.includes("column");
-          if (!missingColumn && !missingLeadCol && !missingWeeklyCols) throw firstErr;
+          if (
+            !missingColumn &&
+            !missingLeadCol &&
+            !missingWeeklyCols &&
+            !missingEmploymentCol
+          ) {
+            throw firstErr;
+          }
 
-          if (missingWeeklyCols && !missingLeadCol) {
+          if (missingLeadCol) {
+            rows = await supabaseGet(
+              withLoc(legacyPath),
+              cacheTag ? { cacheTag } : undefined
+            );
+          } else if (missingWeeklyCols && missingEmploymentCol) {
+            rows = await supabaseGet(
+              withLoc(withLeadOnlyNoEmploymentPath),
+              cacheTag ? { cacheTag } : undefined
+            );
+          } else if (missingWeeklyCols) {
             rows = await supabaseGet(
               withLoc(withLeadOnlyPath),
+              cacheTag ? { cacheTag } : undefined
+            );
+          } else if (missingEmploymentCol) {
+            rows = await supabaseGet(
+              withLoc(withMetaNoEmploymentPath),
               cacheTag ? { cacheTag } : undefined
             );
           } else {
@@ -431,6 +473,7 @@ export function useDataLoaders({
               name: c.crew_name,
               dept: c.home_department,
               active: c.status === "Active",
+              employmentType: normalizeEmploymentType(c.employment_type),
               isDepartmentLead: isTruthyFlag(c.is_department_lead),
               weeklyOffDay1:
                 c.weekly_off_day_1 == null

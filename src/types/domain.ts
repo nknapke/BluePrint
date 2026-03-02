@@ -10,6 +10,7 @@ export type Crew = {
   name: string;
   dept: string;
   active: boolean;
+  employmentType?: "Full-Time" | "On-Call";
   isDepartmentLead: boolean;
   weeklyOffDay1?: number | null;
   weeklyOffDay2?: number | null;
