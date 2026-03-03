@@ -83,6 +83,9 @@ function weekKey(weekStartISO, crewId) {
 const MAX_HISTORY_ENTRIES = 200;
 const WC_SHOWS_MINUTES_THRESHOLD = 225; // 3.75 hours
 const AUTO_SHOW_DAY_DESCRIPTIONS = new Set(["Shows", "WC/Shows"]);
+const DARK_DAY_SHOW_VALUE = "__DARK_DAY__";
+const DARK_DAY_SHOW_TIME = "23:59:00";
+const DARK_DAY_SORT_ORDER = 999;
 
 function sameAssignmentState(a, b) {
   return (
@@ -110,6 +113,17 @@ function parseSqlClockMinutes(value) {
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
   return hour * 60 + minute;
+}
+
+function isDarkDayShowRow(showTime, sortOrder) {
+  const normalizedTime = String(showTime || "").trim();
+  return (
+    Number(sortOrder) < 0 ||
+    (Number(sortOrder) === DARK_DAY_SORT_ORDER &&
+      normalizedTime === DARK_DAY_SHOW_TIME) ||
+    showTime == null ||
+    normalizedTime === ""
+  );
 }
 
 export default function useRosterData({
@@ -165,12 +179,16 @@ export default function useRosterData({
         date: d,
         time: s.show_time,
         sortOrder: Number(s.sort_order) || 0,
+        isDarkDay: isDarkDayShowRow(s.show_time, s.sort_order),
       };
       if (!map.has(d)) map.set(d, []);
       map.get(d).push(entry);
     }
     for (const [d, list] of map.entries()) {
       list.sort((a, b) => {
+        if (!!a.isDarkDay !== !!b.isDarkDay) {
+          return a.isDarkDay ? -1 : 1;
+        }
         if (a.sortOrder && b.sortOrder && a.sortOrder !== b.sortOrder) {
           return a.sortOrder - b.sortOrder;
         }
@@ -985,17 +1003,41 @@ export default function useRosterData({
 
   const createShow = useCallback(
     async (dateISO, timeValue, sortOrder = null) => {
-      if (!location || typeof supabasePost !== "function") return;
+      if (!location || typeof supabasePost !== "function") {
+        return { ok: false, message: "Show saving is not available right now." };
+      }
       const d = safeISODate(dateISO);
-      if (!d) return;
-      if (!timeValue) return;
+      if (!d) return { ok: false, message: "Invalid show date." };
+      const isDarkDay =
+        String(timeValue || "").trim().toUpperCase() === DARK_DAY_SHOW_VALUE;
+      if (!isDarkDay && !timeValue) {
+        return { ok: false, message: "Enter a valid show time." };
+      }
       setShowsError("");
+      const existingShows = showsByDate.get(d) || [];
+      const hasExistingDarkDay = existingShows.some((s) => s?.isDarkDay);
+      if (isDarkDay) {
+        if (hasExistingDarkDay) {
+          return { ok: false, message: "DARK DAY is already set for this day." };
+        }
+        if (existingShows.some((s) => !s?.isDarkDay)) {
+          const message = "Clear existing show times before setting DARK DAY.";
+          setShowsError(message);
+          return { ok: false, message };
+        }
+      } else if (hasExistingDarkDay) {
+        const message = "Delete DARK DAY before adding show times.";
+        setShowsError(message);
+        return { ok: false, message };
+      }
       const payload = {
         location_id: Number(location),
         show_date: d,
-        show_time: timeValue,
+        show_time: isDarkDay ? DARK_DAY_SHOW_TIME : timeValue,
       };
-      if (Number.isFinite(Number(sortOrder))) {
+      if (isDarkDay) {
+        payload.sort_order = DARK_DAY_SORT_ORDER;
+      } else if (Number.isFinite(Number(sortOrder))) {
         payload.sort_order = Number(sortOrder);
       }
       try {
@@ -1006,12 +1048,15 @@ export default function useRosterData({
             headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
           }
         );
-        loadShowsForRange(startISO, endISO, { bypassCache: true });
+        await loadShowsForRange(startISO, endISO, { bypassCache: true });
+        return { ok: true };
       } catch (e) {
-        setShowsError(String(e?.message || e));
+        const message = String(e?.message || e);
+        setShowsError(message);
+        return { ok: false, message };
       }
     },
-    [location, supabasePost, loadShowsForRange, startISO, endISO]
+    [location, supabasePost, loadShowsForRange, startISO, endISO, showsByDate]
   );
 
   const updateShow = useCallback(

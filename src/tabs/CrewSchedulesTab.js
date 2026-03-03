@@ -91,6 +91,7 @@ export default function CrewSchedulesTab({
   activeLocationId,
   locationId = null,
   departmentFilter = "ALL",
+  refreshSignal = 0,
   supabaseGet,
   supabasePost,
   supabasePatch,
@@ -118,6 +119,14 @@ export default function CrewSchedulesTab({
     supabaseDelete,
     days: 7,
   });
+  const refreshAssignments = roster?.refreshAssignments;
+
+  useEffect(() => {
+    if (!refreshSignal) return;
+    if (typeof refreshAssignments === "function") {
+      refreshAssignments(true);
+    }
+  }, [refreshAssignments, refreshSignal]);
 
   const weekLabel = useMemo(() => {
     const a = roster?.startISO || "";

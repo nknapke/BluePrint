@@ -5,6 +5,10 @@ import { formatLongDate } from "../../utils/dates";
 import { matchesCrewScheduleDeptFilter, prettyDept } from "../../utils/strings";
 
 const EMPTY_ARRAY = [];
+const isDarkDayShow = (show) =>
+  !!show?.isDarkDay ||
+  show?.time == null ||
+  String(show?.time || "").trim() === "";
 
 const formatShowTime = (value) => {
   if (!value) return "";
@@ -196,7 +200,7 @@ export default function CrewSchedulesCoverageView({
 
   const coverageByDay = useMemo(() => {
     return dateList.map((dateISO) => {
-      const shows = getShowsForDate(dateISO);
+      const shows = getShowsForDate(dateISO).filter((show) => !isDarkDayShow(show));
       const fallbackTrackMap = new Map();
 
       const showCoverage = shows.map((show) => {

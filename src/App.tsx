@@ -21,6 +21,11 @@ import { useLocation } from "./context/LocationContext";
 import { useDataLoaders } from "./hooks/useDataLoaders";
 import { useHistoryModal } from "./hooks/useHistoryModal";
 import { useMarkComplete } from "./hooks/useMarkComplete";
+import {
+  getDarkDayShowPayload,
+  parsePerformanceCalendarPdf,
+  timeTextToSqlTime,
+} from "./utils/perfCalendarPdf";
 import { getCrewScheduleDeptGroupLabel } from "./utils/strings";
 import type {
   Crew,
@@ -48,6 +53,15 @@ function getErrorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
 
+function chunkList<T>(items: T[], size: number) {
+  const chunkSize = Math.max(1, Math.trunc(size) || 1);
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    out.push(items.slice(i, i + chunkSize));
+  }
+  return out;
+}
+
 export default function App() {
   const {
     supabaseGet,
@@ -63,11 +77,33 @@ export default function App() {
   const S = useMemo(() => createStyles(), []);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [plannerRefreshSignal, setPlannerRefreshSignal] = useState(0);
+  const [crewSchedulesRefreshSignal, setCrewSchedulesRefreshSignal] = useState(0);
   const [crewScheduleDepartmentTab, setCrewScheduleDepartmentTab] = useState("ALL");
+  const [showCalendarImporting, setShowCalendarImporting] = useState(false);
+  const [showCalendarImportMessage, setShowCalendarImportMessage] = useState("");
+  const [showCalendarImportError, setShowCalendarImportError] = useState("");
+  const [placeholderSettingEnabled, setPlaceholderSettingEnabled] = useState(() => {
+    try {
+      return window.localStorage.getItem("blueprint:placeholder-setting") === "1";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     document.title = "BluePrint";
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "blueprint:placeholder-setting",
+        placeholderSettingEnabled ? "1" : "0"
+      );
+    } catch {
+      // Ignore localStorage failures and keep the setting in memory.
+    }
+  }, [placeholderSettingEnabled]);
 
   const lastUpdatedLabel = useMemo(() => {
     if (!lastUpdatedAt) return "";
@@ -345,6 +381,103 @@ export default function App() {
       return await supabasePost(`/rest/v1/rpc/${fnName}`, payload);
     },
     [supabasePost]
+  );
+
+  const importShowCalendarPdf = useCallback(
+    async (file: File) => {
+      if (!activeLocationId) {
+        setShowCalendarImportError("Select a location before importing a show calendar.");
+        setShowCalendarImportMessage("");
+        return;
+      }
+
+      setShowCalendarImporting(true);
+      setShowCalendarImportError("");
+      setShowCalendarImportMessage("Reading performance calendar PDF...");
+      let currentStep = "reading the PDF";
+
+      try {
+        const parsedDays = await parsePerformanceCalendarPdf(file, {
+          onProgress: (message) => setShowCalendarImportMessage(message),
+        });
+        if (!parsedDays.length) {
+          throw new Error("No show times or DARK days were found in this PDF.");
+        }
+
+        const firstDate = parsedDays[0]?.dateISO || "";
+        const lastDate = parsedDays[parsedDays.length - 1]?.dateISO || "";
+
+        setShowCalendarImportMessage(
+          `Parsed ${parsedDays.length} calendar days. Clearing existing show times...`
+        );
+        currentStep = "clearing existing show times";
+        await supabaseDelete(
+          "/rest/v1/show_instances" +
+            `?location_id=eq.${Number(activeLocationId)}` +
+            `&show_date=gte.${firstDate}` +
+            `&show_date=lte.${lastDate}`
+        );
+
+        const payload = parsedDays.flatMap((day) => {
+          if (day.isDarkDay) {
+            return [getDarkDayShowPayload(day.dateISO, Number(activeLocationId))];
+          }
+          return day.showTimes
+            .map((time, index) => {
+              const sqlTime = timeTextToSqlTime(time);
+              if (!sqlTime) return null;
+              return {
+                location_id: Number(activeLocationId),
+                show_date: day.dateISO,
+                show_time: sqlTime,
+                sort_order: index + 1,
+              };
+            })
+            .filter(Boolean);
+        });
+
+        if (!payload.length) {
+          throw new Error("The PDF parsed, but no show rows were ready to import.");
+        }
+
+        const batches = chunkList(payload, 100);
+        currentStep = "uploading show rows";
+        for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+          const batch = batches[batchIndex];
+          setShowCalendarImportMessage(
+            `Uploading show rows ${batchIndex + 1} of ${batches.length}...`
+          );
+          await supabasePost(
+            "/rest/v1/show_instances?on_conflict=location_id,show_date,show_time",
+            batch,
+            {
+              headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+            }
+          );
+        }
+
+        setCrewSchedulesRefreshSignal((value) => value + 1);
+        markUpdated();
+        setShowCalendarImportMessage(
+          `Imported ${parsedDays.length} days and ${payload.length} show entries.`
+        );
+      } catch (e) {
+        setShowCalendarImportMessage("");
+        const baseMessage = getErrorMessage(e);
+        if (baseMessage === "Failed to fetch") {
+          setShowCalendarImportError(
+            `Failed while ${currentStep}. Check your network connection and try again.`
+          );
+        } else if (baseMessage.startsWith("Failed while")) {
+          setShowCalendarImportError(baseMessage);
+        } else {
+          setShowCalendarImportError(`Failed while ${currentStep}: ${baseMessage}`);
+        }
+      } finally {
+        setShowCalendarImporting(false);
+      }
+    },
+    [activeLocationId, markUpdated, supabaseDelete, supabasePost]
   );
 
   // ---- Loaders (now read location from LocationContext internally) ----
@@ -2035,6 +2168,12 @@ export default function App() {
           setActiveSecondaryTab={
             isCrewSchedulesTab ? setCrewScheduleDepartmentTab : undefined
           }
+          placeholderSettingEnabled={placeholderSettingEnabled}
+          setPlaceholderSettingEnabled={setPlaceholderSettingEnabled}
+          onImportShowCalendarPdf={importShowCalendarPdf}
+          showCalendarImporting={showCalendarImporting}
+          showCalendarImportMessage={showCalendarImportMessage}
+          showCalendarImportError={showCalendarImportError}
         />
 
         <div style={S.contentGrid}>
@@ -2232,6 +2371,7 @@ export default function App() {
               supabaseDelete={supabaseDelete}
               departmentFilter={crewScheduleDepartmentTab}
               tracks={tracks}
+              refreshSignal={crewSchedulesRefreshSignal}
             />
           )}
         </div>

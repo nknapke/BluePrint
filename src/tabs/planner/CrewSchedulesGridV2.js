@@ -29,6 +29,7 @@ const DAY_DESCRIPTION_OPTIONS = [
   "Shows",
 ];
 const TIME_DATALIST_ID = "crew-grid-v2-time-options";
+const DARK_DAY_SHOW_VALUE = "__DARK_DAY__";
 
 const parseTimeInput = (value) => {
   if (!value) return null;
@@ -104,6 +105,11 @@ const normalizeWeekdayNumber = (value) => {
   return i;
 };
 
+const isDarkDayShow = (show) =>
+  !!show?.isDarkDay ||
+  show?.time == null ||
+  String(show?.time || "").trim() === "";
+
 const employmentSortRank = (crew) => {
   const value = String(crew?.employment_type || crew?.employmentType || "")
     .trim()
@@ -133,6 +139,7 @@ export default function CrewSchedulesGridV2({
 }) {
   const savePaused = !!roster?.savePaused;
   const [timeDraftMap, setTimeDraftMap] = useState(() => new Map());
+  const [expandedHoursMap, setExpandedHoursMap] = useState(() => new Set());
 
   const days = Array.isArray(roster?.dateList) ? roster.dateList : EMPTY_ARRAY;
   const getShowsForDate = useMemo(
@@ -262,7 +269,9 @@ export default function CrewSchedulesGridV2({
 
   const showColumnCountForDate = useCallback(
     (dateISO) => {
-      const count = getShowsForDate(dateISO).length;
+      const list = getShowsForDate(dateISO);
+      if (list.some(isDarkDayShow)) return 2;
+      const count = list.length;
       const clamped = Math.min(4, Math.max(0, count));
       if (clamped === 1) return 2;
       return Math.max(1, clamped);
@@ -285,6 +294,10 @@ export default function CrewSchedulesGridV2({
     (dateISO) => {
       const cols = colsForDate(dateISO);
       const list = getShowsForDate(dateISO);
+      const darkDayShow = list.find(isDarkDayShow);
+      if (darkDayShow) {
+        return [{ kind: "dark", show: darkDayShow, colSpan: cols }];
+      }
       const trimmed = list.slice(0, cols);
       const count = trimmed.length;
       const slots = Array.from({ length: cols }, () => null);
@@ -304,6 +317,11 @@ export default function CrewSchedulesGridV2({
   const totalShowCols = useMemo(
     () => days.reduce((sum, d) => sum + colsForDate(d), 0),
     [days, colsForDate]
+  );
+
+  const hasDarkDayForDate = useCallback(
+    (dateISO) => getShowsForDate(dateISO).some(isDarkDayShow),
+    [getShowsForDate]
   );
 
   const handleShiftChange = (dateISO, crewId, nextStartLabel, nextEndLabel) => {
@@ -343,6 +361,18 @@ export default function CrewSchedulesGridV2({
       if (!prev.has(key)) return prev;
       const next = new Map(prev);
       next.delete(key);
+      return next;
+    });
+  };
+
+  const hoursToggleKey = (dateISO, crewId) => `${dateISO}|${Number(crewId)}`;
+
+  const toggleHoursExpanded = (dateISO, crewId) => {
+    const key = hoursToggleKey(dateISO, crewId);
+    setExpandedHoursMap((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -428,16 +458,33 @@ export default function CrewSchedulesGridV2({
     if (savePaused) return;
     if (typeof roster?.createShow !== "function") return;
     const list = getShowsForDate(dateISO);
+    if (list.some(isDarkDayShow)) return;
     if (list.length >= 4) return;
-    const raw = window.prompt("Show time (e.g., 7:00 PM)", "");
-    const parsed = parseTimeInput(raw || "");
+    const raw = window.prompt(
+      "Show time (e.g., 7:00 PM) or type DARK DAY",
+      ""
+    );
+    const normalized = String(raw || "").trim();
+    if (!normalized) return;
+    if (normalized.toUpperCase() === "DARK DAY") {
+      const result = await roster.createShow(dateISO, DARK_DAY_SHOW_VALUE, 1);
+      if (result?.ok === false && result?.message) {
+        window.alert(result.message);
+      }
+      return;
+    }
+    const parsed = parseTimeInput(normalized);
     if (!parsed) return;
-    await roster.createShow(dateISO, parsed, list.length + 1);
+    const result = await roster.createShow(dateISO, parsed, list.length + 1);
+    if (result?.ok === false && result?.message) {
+      window.alert(result.message);
+    }
   };
 
   const handleEditShow = async (dateISO, show) => {
     if (savePaused) return;
     if (!show?.id || typeof roster?.updateShow !== "function") return;
+    if (isDarkDayShow(show)) return;
     const raw = window.prompt("Show time (e.g., 7:00 PM)", formatShowTime(show.time));
     const parsed = parseTimeInput(raw || "");
     if (!parsed) return;
@@ -562,6 +609,7 @@ export default function CrewSchedulesGridV2({
 
   const shouldShowTrackRowForCrewDay = (dateISO, crewId) => {
     if (!showDayDetailForCrew(dateISO, crewId)) return false;
+    if (hasDarkDayForDate(dateISO)) return false;
     if (isWorkCallDayForCrew(dateISO, crewId)) return false;
     const dayDescription = getDayDescriptionForDay(dateISO, crewId);
     if (dayDescription) return true;
@@ -835,6 +883,20 @@ export default function CrewSchedulesGridV2({
     const slots = showSlotsForDate(dateISO);
     const cols = colsForDate(dateISO);
     const showCountForDay = getShowsForDate(dateISO).length;
+    if (slots.some((slot) => slot?.kind === "dark")) {
+      return [
+        <td
+          key={`dark-day-fill-${crewId}-${dateISO}`}
+          colSpan={cols}
+          style={{
+            border: cellBorder,
+            background: ui.emptyDayBg,
+            padding: "2px",
+            height: 26,
+          }}
+        />,
+      ];
+    }
 
     return slots.map((slot, idx) => {
       const canUse = slot?.kind === "show";
@@ -1093,13 +1155,16 @@ export default function CrewSchedulesGridV2({
                     const showCountForDay = getShowsForDate(dateISO).length;
                     return slots.map((slot, idx) => {
                       const isShow = slot?.kind === "show";
+                      const isDark = slot?.kind === "dark";
                       const isAdd = slot?.kind === "add";
                       const show = isShow ? slot.show : null;
+                      const darkShow = isDark ? slot.show : null;
                       const hideGhostForSingleShow =
                         !isShow && cols === 2 && showCountForDay === 1;
                       return (
                         <th
-                          key={`head-show-${dateISO}-${show?.id ?? `${slot?.kind}-${idx}`}`}
+                          key={`head-show-${dateISO}-${show?.id ?? darkShow?.id ?? `${slot?.kind}-${idx}`}`}
+                          colSpan={isDark ? slot?.colSpan || cols : 1}
                           style={{
                             border: hideGhostForSingleShow
                               ? "1px solid transparent"
@@ -1157,6 +1222,53 @@ export default function CrewSchedulesGridV2({
                                 }}
                                 title="Delete show"
                                 aria-label="Delete show"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ) : isDark ? (
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  border: `1px solid ${ui.controlBorder}`,
+                                  borderRadius: 999,
+                                  background:
+                                    "linear-gradient(180deg, rgba(234,241,255,0.98), rgba(224,234,252,0.98))",
+                                  color: ui.controlText,
+                                  fontWeight: 900,
+                                  fontSize: 9.5,
+                                  padding: "1px 10px",
+                                  letterSpacing: "0.03em",
+                                }}
+                                title="Dark day"
+                              >
+                                DARK DAY
+                              </div>
+                              <button
+                                type="button"
+                                disabled={savePaused}
+                                onClick={() => handleDeleteShow(dateISO, darkShow)}
+                                style={{
+                                  border: "1px solid #f2c7c3",
+                                  borderRadius: 999,
+                                  background: "#fff3f1",
+                                  color: "#7f1d1d",
+                                  fontWeight: 900,
+                                  fontSize: 9,
+                                  width: 16,
+                                  height: 16,
+                                  padding: 0,
+                                  cursor: savePaused ? "not-allowed" : "pointer",
+                                  lineHeight: "14px",
+                                }}
+                                title="Delete dark day"
+                                aria-label="Delete dark day"
                               >
                                 ×
                               </button>
@@ -1641,6 +1753,13 @@ export default function CrewSchedulesGridV2({
                               showRegular || showRegularOvertime;
                             const showBothBreakdownColumns =
                               hasLeadColumn && hasRegularColumn;
+                            const hasHoursDetails =
+                              hasAnyBreakdown || hasWorkedTotal || hasPaidTotal;
+                            const canCollapseHours =
+                              !!dayLeadRoleLabel && hasHoursDetails;
+                            const isHoursExpanded = canCollapseHours
+                              ? expandedHoursMap.has(hoursToggleKey(dateISO, crew.id))
+                              : hasHoursDetails;
                             return [
                               <td
                                 key={`hours-${crew.id}-${dateISO}`}
@@ -1653,14 +1772,26 @@ export default function CrewSchedulesGridV2({
                                 }}
                               >
                                 {dayLeadRoleLabel ? (
-                                  <div
+                                  <button
+                                    type="button"
+                                    onClick={
+                                      canCollapseHours
+                                        ? () => toggleHoursExpanded(dateISO, crew.id)
+                                        : undefined
+                                    }
                                     style={{
-                                      marginBottom: 2,
-                                      paddingBottom: 2,
-                                      borderBottom: "1px solid rgba(31,53,92,0.12)",
+                                      width: "100%",
+                                      marginBottom: isHoursExpanded ? 2 : 0,
+                                      padding: "0 2px 2px",
+                                      border: "none",
+                                      borderBottom: isHoursExpanded
+                                        ? "1px solid rgba(31,53,92,0.12)"
+                                        : "none",
+                                      background: "transparent",
                                       display: "flex",
                                       alignItems: "center",
                                       justifyContent: "center",
+                                      gap: 6,
                                       fontSize: 9.5,
                                       fontWeight: 800,
                                       letterSpacing: "0.02em",
@@ -1668,13 +1799,36 @@ export default function CrewSchedulesGridV2({
                                       whiteSpace: "nowrap",
                                       overflow: "hidden",
                                       textOverflow: "ellipsis",
+                                      cursor: canCollapseHours ? "pointer" : "default",
                                     }}
-                                    title={dayLeadRoleLabel}
+                                    title={
+                                      canCollapseHours
+                                        ? `${dayLeadRoleLabel} (${isHoursExpanded ? "Hide" : "Show"} hours)`
+                                        : dayLeadRoleLabel
+                                    }
                                   >
-                                    {dayLeadRoleLabel}
-                                  </div>
+                                    <span
+                                      style={{
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                      }}
+                                    >
+                                      {dayLeadRoleLabel}
+                                    </span>
+                                    {canCollapseHours ? (
+                                      <span
+                                        style={{
+                                          fontSize: 8.5,
+                                          opacity: 0.75,
+                                          flex: "0 0 auto",
+                                        }}
+                                      >
+                                        {isHoursExpanded ? "▾" : "▸"}
+                                      </span>
+                                    ) : null}
+                                  </button>
                                 ) : null}
-                                {hasAnyBreakdown || hasWorkedTotal || hasPaidTotal ? (
+                                {isHoursExpanded ? (
                                   <div
                                     style={{
                                       marginBottom: 2,
@@ -1709,104 +1863,106 @@ export default function CrewSchedulesGridV2({
                                     </div>
                                   </div>
                                 ) : null}
-                                <div
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: showBothBreakdownColumns
-                                      ? "repeat(2, minmax(0, 1fr))"
-                                      : "1fr",
-                                    gap: 4,
-                                    alignItems: "start",
-                                    fontSize: 10,
-                                    color: "#4b556e",
-                                  }}
-                                >
-                                  {hasLeadColumn ? (
-                                    <div style={{ display: "grid", gap: 1, minWidth: 0 }}>
-                                      {showLead ? (
-                                        <div
-                                          style={{
-                                            fontWeight: 800,
-                                            color: "#5b6479",
-                                            whiteSpace: "nowrap",
-                                          }}
-                                        >
-                                          Lead:{" "}
-                                          <span style={{ fontWeight: 900, color: "#1f355c" }}>
-                                            {formatHours(normalizedLeadValue)}
-                                          </span>
-                                        </div>
-                                      ) : null}
-                                      {showLeadOvertime ? (
-                                        <div
-                                          style={{
-                                            fontWeight: 800,
-                                            color: "#9a3412",
-                                            whiteSpace: "nowrap",
-                                          }}
-                                        >
-                                          L-OT:{" "}
-                                          <span
+                                {isHoursExpanded ? (
+                                  <div
+                                    style={{
+                                      display: "grid",
+                                      gridTemplateColumns: showBothBreakdownColumns
+                                        ? "repeat(2, minmax(0, 1fr))"
+                                        : "1fr",
+                                      gap: 4,
+                                      alignItems: "start",
+                                      fontSize: 10,
+                                      color: "#4b556e",
+                                    }}
+                                  >
+                                    {hasLeadColumn ? (
+                                      <div style={{ display: "grid", gap: 1, minWidth: 0 }}>
+                                        {showLead ? (
+                                          <div
                                             style={{
-                                              fontWeight: 900,
-                                              color: "#9a3412",
+                                              fontWeight: 800,
+                                              color: "#5b6479",
+                                              whiteSpace: "nowrap",
                                             }}
                                           >
-                                            {formatHours(leadOvertimeValue)}
-                                          </span>
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                  ) : null}
+                                            Lead:{" "}
+                                            <span style={{ fontWeight: 900, color: "#1f355c" }}>
+                                              {formatHours(normalizedLeadValue)}
+                                            </span>
+                                          </div>
+                                        ) : null}
+                                        {showLeadOvertime ? (
+                                          <div
+                                            style={{
+                                              fontWeight: 800,
+                                              color: "#9a3412",
+                                              whiteSpace: "nowrap",
+                                            }}
+                                          >
+                                            L-OT:{" "}
+                                            <span
+                                              style={{
+                                                fontWeight: 900,
+                                                color: "#9a3412",
+                                              }}
+                                            >
+                                              {formatHours(leadOvertimeValue)}
+                                            </span>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
 
-                                  {hasRegularColumn ? (
-                                    <div
-                                      style={{
-                                        display: "grid",
-                                        gap: 1,
-                                        minWidth: 0,
-                                        borderLeft: hasLeadColumn
-                                          ? "1px solid rgba(31,53,92,0.12)"
-                                          : "none",
-                                        paddingLeft: hasLeadColumn ? 6 : 0,
-                                      }}
-                                    >
-                                      {showRegular ? (
-                                        <div
-                                          style={{
-                                            fontWeight: 800,
-                                            color: "#5b6479",
-                                            whiteSpace: "nowrap",
-                                          }}
-                                        >
-                                          Regular:{" "}
-                                          <span style={{ fontWeight: 900, color: "#1f355c" }}>
-                                            {formatHours(regularValue)}
-                                          </span>
-                                        </div>
-                                      ) : null}
-                                      {showRegularOvertime ? (
-                                        <div
-                                          style={{
-                                            fontWeight: 800,
-                                            color: "#9a3412",
-                                            whiteSpace: "nowrap",
-                                          }}
-                                        >
-                                          R-OT:{" "}
-                                          <span
+                                    {hasRegularColumn ? (
+                                      <div
+                                        style={{
+                                          display: "grid",
+                                          gap: 1,
+                                          minWidth: 0,
+                                          borderLeft: hasLeadColumn
+                                            ? "1px solid rgba(31,53,92,0.12)"
+                                            : "none",
+                                          paddingLeft: hasLeadColumn ? 6 : 0,
+                                        }}
+                                      >
+                                        {showRegular ? (
+                                          <div
                                             style={{
-                                              fontWeight: 900,
-                                              color: "#9a3412",
+                                              fontWeight: 800,
+                                              color: "#5b6479",
+                                              whiteSpace: "nowrap",
                                             }}
                                           >
-                                            {formatHours(regularOvertimeValue)}
-                                          </span>
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                  ) : null}
-                                </div>
+                                            Regular:{" "}
+                                            <span style={{ fontWeight: 900, color: "#1f355c" }}>
+                                              {formatHours(regularValue)}
+                                            </span>
+                                          </div>
+                                        ) : null}
+                                        {showRegularOvertime ? (
+                                          <div
+                                            style={{
+                                              fontWeight: 800,
+                                              color: "#9a3412",
+                                              whiteSpace: "nowrap",
+                                            }}
+                                          >
+                                            R-OT:{" "}
+                                            <span
+                                              style={{
+                                                fontWeight: 900,
+                                                color: "#9a3412",
+                                              }}
+                                            >
+                                              {formatHours(regularOvertimeValue)}
+                                            </span>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                               </td>,
                             ];
                           })}

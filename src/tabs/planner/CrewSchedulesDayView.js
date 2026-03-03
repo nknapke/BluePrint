@@ -5,6 +5,7 @@ import { formatLongDate } from "../../utils/dates";
 import { matchesCrewScheduleDeptFilter, prettyDept } from "../../utils/strings";
 
 const EMPTY_ARRAY = [];
+const DARK_DAY_SHOW_VALUE = "__DARK_DAY__";
 
 const parseTimeInput = (value) => {
   if (!value) return null;
@@ -64,6 +65,11 @@ const TIME_OPTIONS = Array.from({ length: 96 }, (_, i) => {
   return `${hour}:${String(minute).padStart(2, "0")} ${mer}`;
 });
 
+const isDarkDayShow = (show) =>
+  !!show?.isDarkDay ||
+  show?.time == null ||
+  String(show?.time || "").trim() === "";
+
 export default function CrewSchedulesDayView({
   S,
   roster,
@@ -110,32 +116,54 @@ export default function CrewSchedulesDayView({
       ? roster.getShowsForDate(dateISO)
       : [];
   }, [roster, dateISO]);
+  const schedulableShows = useMemo(
+    () => showList.filter((s) => !isDarkDayShow(s)),
+    [showList]
+  );
+  const darkDayShow = useMemo(
+    () => showList.find((s) => isDarkDayShow(s)) || null,
+    [showList]
+  );
 
   const [activeShowId, setActiveShowId] = useState(null);
 
   useEffect(() => {
-    const next = showList[0]?.id ?? null;
+    const next = schedulableShows[0]?.id ?? null;
     setActiveShowId(next);
-  }, [dateISO, showList]);
+  }, [dateISO, schedulableShows]);
 
   const activeShow = useMemo(
-    () => showList.find((s) => s.id === activeShowId) || null,
-    [showList, activeShowId]
+    () => schedulableShows.find((s) => s.id === activeShowId) || null,
+    [schedulableShows, activeShowId]
   );
 
   const promptShowTime = (seed = "") => {
-    const raw = window.prompt("Show time (e.g., 7:00 PM)", seed);
+    const raw = window.prompt(
+      "Show time (e.g., 7:00 PM) or type DARK DAY",
+      seed
+    );
     if (!raw) return null;
-    return parseTimeInput(raw);
+    const normalized = String(raw || "").trim();
+    if (!normalized) return null;
+    if (normalized.toUpperCase() === "DARK DAY") return DARK_DAY_SHOW_VALUE;
+    return parseTimeInput(normalized);
   };
 
   const handleAddShow = async () => {
     if (savePaused) return;
     if (!dateISO || typeof roster?.createShow !== "function") return;
-    if (showList.length >= 4) return;
+    if (darkDayShow) return;
+    if (schedulableShows.length >= 4) return;
     const parsed = promptShowTime("");
     if (!parsed) return;
-    await roster.createShow(dateISO, parsed, showList.length + 1);
+    const result = await roster.createShow(
+      dateISO,
+      parsed,
+      parsed === DARK_DAY_SHOW_VALUE ? 1 : schedulableShows.length + 1
+    );
+    if (result?.ok === false && result?.message) {
+      window.alert(result.message);
+    }
   };
 
   const handleEditShow = async () => {
@@ -148,10 +176,11 @@ export default function CrewSchedulesDayView({
 
   const handleDeleteShow = async () => {
     if (savePaused) return;
-    if (!activeShow || typeof roster?.deleteShow !== "function") return;
+    const targetShow = activeShow || darkDayShow;
+    if (!targetShow || typeof roster?.deleteShow !== "function") return;
     const ok = window.confirm("Delete this show time and its assignments?");
     if (!ok) return;
-    await roster.deleteShow(activeShow.id, dateISO);
+    await roster.deleteShow(targetShow.id, dateISO);
   };
 
   const applyShift = (crewId, startLabel, endLabel) => {
@@ -192,18 +221,18 @@ export default function CrewSchedulesDayView({
 
   const workingCount = useMemo(() => {
     if (!dateISO) return 0;
-    if (!showList.length) return 0;
+    if (!schedulableShows.length || activeShowId == null) return 0;
     return filteredCrew.reduce((acc, c) => {
       const on = roster?.isWorking?.(dateISO, c.id, activeShowId) ? 1 : 0;
       return acc + on;
     }, 0);
-  }, [filteredCrew, roster, dateISO, activeShowId, showList.length]);
+  }, [filteredCrew, roster, dateISO, activeShowId, schedulableShows.length]);
 
   /* ---------- bulk actions ---------- */
 
   const setAll = (value) => {
     if (savePaused) return;
-    if (!showList.length) return;
+    if (!schedulableShows.length || activeShowId == null) return;
     for (const c of filteredCrew) {
       roster.setWorkingFor(dateISO, c.id, activeShowId, value);
     }
@@ -211,7 +240,7 @@ export default function CrewSchedulesDayView({
 
   const toggleOne = (crewId) => {
     if (savePaused) return;
-    if (!showList.length) return;
+    if (!schedulableShows.length || activeShowId == null) return;
     roster.toggleCell(dateISO, crewId, activeShowId);
   };
 
@@ -255,7 +284,7 @@ export default function CrewSchedulesDayView({
           </div>
 
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {showList.length ? (
+            {schedulableShows.length ? (
               <select
                 style={{ ...S.select, minWidth: 160, height: 32 }}
                 value={activeShowId ?? ""}
@@ -265,12 +294,22 @@ export default function CrewSchedulesDayView({
                   )
                 }
               >
-                {showList.map((s) => (
+                {schedulableShows.map((s) => (
                   <option key={s.id} value={s.id}>
                     {formatShowTime(s.time) || "Show"}
                   </option>
                 ))}
               </select>
+            ) : darkDayShow ? (
+              <span
+                style={{
+                  ...S.badge("subtle"),
+                  fontWeight: 800,
+                  letterSpacing: "0.04em",
+                }}
+              >
+                DARK DAY
+              </span>
             ) : (
               <span style={{ ...S.helper, opacity: 0.7 }}>No shows</span>
             )}
@@ -299,26 +338,38 @@ export default function CrewSchedulesDayView({
                   Delete show
                 </button>
               </>
+            ) : darkDayShow ? (
+              <button
+                style={S.button("ghost", savePaused)}
+                onClick={handleDeleteShow}
+                disabled={savePaused}
+              >
+                Delete show
+              </button>
             ) : null}
 
             <button
               style={S.button("ghost", savePaused)}
               onClick={() => setAll(true)}
-              disabled={savePaused || !showList.length}
+              disabled={savePaused || !schedulableShows.length || activeShowId == null}
             >
               All On
             </button>
             <button
               style={S.button("ghost", savePaused)}
               onClick={() => setAll(false)}
-              disabled={savePaused || !showList.length}
+              disabled={savePaused || !schedulableShows.length || activeShowId == null}
             >
               All Off
             </button>
           </div>
         </div>
 
-        {!showList.length ? (
+        {darkDayShow && !schedulableShows.length ? (
+          <div style={{ ...S.helper, marginTop: 10 }}>
+            Dark Day: no shows scheduled for this day.
+          </div>
+        ) : !showList.length ? (
           <div style={{ ...S.helper, marginTop: 10 }}>
             Add a show time to schedule crew for this day.
           </div>
