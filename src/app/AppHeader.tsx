@@ -210,6 +210,8 @@ export function AppHeader({
   showCalendarImportError,
 }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [renderSecondaryTabs, setRenderSecondaryTabs] = useState(false);
+  const [secondaryTabsVisible, setSecondaryTabsVisible] = useState(false);
   const settingsRef = useRef<HTMLDivElement | null>(null);
   const showCalendarInputRef = useRef<HTMLInputElement | null>(null);
   const headerRowStyle: CSSProperties = wide
@@ -231,16 +233,27 @@ export function AppHeader({
     : S.pillBar;
   const hasSecondaryTabs =
     secondaryTabs.length > 1 && typeof setActiveSecondaryTab === "function";
+  const secondaryTransitionWrapStyle: CSSProperties = {
+    overflow: "hidden",
+    maxHeight: secondaryTabsVisible ? 72 : 0,
+    opacity: secondaryTabsVisible ? 1 : 0,
+    transform: secondaryTabsVisible
+      ? "translateY(0) scale(1)"
+      : "translateY(-14px) scale(0.985)",
+    marginTop: renderSecondaryTabs ? 8 : 0,
+    pointerEvents: secondaryTabsVisible ? "auto" : "none",
+    transition:
+      "max-height 300ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease, transform 300ms cubic-bezier(0.22, 1, 0.36, 1), margin-top 240ms ease",
+    willChange: "max-height, opacity, transform, margin-top",
+  };
   const secondaryRowStyle: CSSProperties = wide
     ? {
         display: "flex",
         justifyContent: "flex-end",
-        marginTop: 8,
       }
     : {
         display: "flex",
         justifyContent: "center",
-        marginTop: 8,
       };
   const secondaryBarStyle: CSSProperties = wide
     ? {
@@ -309,6 +322,28 @@ export function AppHeader({
   useEffect(() => {
     setSettingsOpen(false);
   }, [activeTab, activeLocationId]);
+
+  useEffect(() => {
+    let frameId = 0;
+    let timeoutId = 0;
+
+    if (hasSecondaryTabs) {
+      setRenderSecondaryTabs(true);
+      frameId = window.requestAnimationFrame(() => {
+        setSecondaryTabsVisible(true);
+      });
+    } else {
+      setSecondaryTabsVisible(false);
+      timeoutId = window.setTimeout(() => {
+        setRenderSecondaryTabs(false);
+      }, 300);
+    }
+
+    return () => {
+      if (frameId) window.cancelAnimationFrame(frameId);
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [hasSecondaryTabs]);
 
   return (
     <div style={S.topBar} data-app-topbar="true">
@@ -482,10 +517,10 @@ export function AppHeader({
         </div>
       </div>
 
-      {hasSecondaryTabs ? (
+      <div style={secondaryTransitionWrapStyle} aria-hidden={!hasSecondaryTabs}>
         <div style={secondaryRowStyle}>
           <div style={secondaryBarStyle}>
-            {secondaryTabs.map((t) => (
+            {(renderSecondaryTabs ? secondaryTabs : []).map((t) => (
               <div
                 key={t.value}
                 style={secondaryTabPillStyle(activeSecondaryTab === t.value)}
@@ -504,7 +539,7 @@ export function AppHeader({
             ))}
           </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
