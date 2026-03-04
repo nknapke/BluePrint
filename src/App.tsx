@@ -39,6 +39,7 @@ import type {
 
 import CrewTab from "./tabs/CrewTab";
 import TracksTab from "./tabs/TracksTab";
+import InventoryTab from "./tabs/InventoryTab.js";
 import TrainingsTab from "./tabs/TrainingsTab";
 import SignoffsTab from "./tabs/SignoffsTab";
 import RecordsTab from "./tabs/RecordsTab";
@@ -82,6 +83,30 @@ export default function App() {
   const [showCalendarImporting, setShowCalendarImporting] = useState(false);
   const [showCalendarImportMessage, setShowCalendarImportMessage] = useState("");
   const [showCalendarImportError, setShowCalendarImportError] = useState("");
+  const [inventoryActorId, setInventoryActorId] = useState(() => {
+    try {
+      return window.localStorage.getItem("blueprint:inventory-actor-id") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [inventoryActorName, setInventoryActorName] = useState(() => {
+    try {
+      return window.localStorage.getItem("blueprint:inventory-actor-name") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [inventoryActorDraftName, setInventoryActorDraftName] = useState(() => {
+    try {
+      return window.localStorage.getItem("blueprint:inventory-actor-name") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [inventoryActorSaving, setInventoryActorSaving] = useState(false);
+  const [inventoryActorMessage, setInventoryActorMessage] = useState("");
+  const [inventoryActorError, setInventoryActorError] = useState("");
   const [placeholderSettingEnabled, setPlaceholderSettingEnabled] = useState(() => {
     try {
       return window.localStorage.getItem("blueprint:placeholder-setting") === "1";
@@ -105,6 +130,19 @@ export default function App() {
     }
   }, [placeholderSettingEnabled]);
 
+  useEffect(() => {
+    try {
+      if (inventoryActorId) {
+        window.localStorage.setItem("blueprint:inventory-actor-id", inventoryActorId);
+      } else {
+        window.localStorage.removeItem("blueprint:inventory-actor-id");
+      }
+      window.localStorage.setItem("blueprint:inventory-actor-name", inventoryActorName || "");
+    } catch {
+      // Keep inventory actor identity in memory if localStorage is unavailable.
+    }
+  }, [inventoryActorId, inventoryActorName]);
+
   const lastUpdatedLabel = useMemo(() => {
     if (!lastUpdatedAt) return "";
     const stamp = new Date(lastUpdatedAt);
@@ -118,6 +156,56 @@ export default function App() {
   const markUpdated = useCallback(() => {
     setLastUpdatedAt(Date.now());
   }, []);
+
+  const saveInventoryActor = useCallback(async () => {
+    const trimmedName = String(inventoryActorDraftName || "").trim();
+    if (!trimmedName) {
+      setInventoryActorError("Inventory user name is required.");
+      setInventoryActorMessage("");
+      return;
+    }
+
+    setInventoryActorSaving(true);
+    setInventoryActorError("");
+    setInventoryActorMessage("");
+    try {
+      let actorRow: any = null;
+
+      if (inventoryActorId) {
+        actorRow = await supabasePatch(
+          `/rest/v1/inventory_actors?id=eq.${encodeURIComponent(inventoryActorId)}`,
+          { display_name: trimmedName }
+        );
+
+        if (!actorRow?.id) {
+          actorRow = await supabasePost("/rest/v1/inventory_actors", {
+            id: inventoryActorId,
+            display_name: trimmedName,
+          });
+        }
+      } else {
+        actorRow = await supabasePost("/rest/v1/inventory_actors", {
+          display_name: trimmedName,
+        });
+      }
+
+      setInventoryActorId(String(actorRow?.id || inventoryActorId || ""));
+      setInventoryActorName(String(actorRow?.display_name || trimmedName));
+      setInventoryActorDraftName(String(actorRow?.display_name || trimmedName));
+      setInventoryActorMessage(`Inventory changes will be attributed to ${trimmedName}.`);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      if (message.includes("inventory_actors")) {
+        setInventoryActorError(
+          "Inventory actor profiles are not available yet. Run the inventory actor migration in Supabase first."
+        );
+      } else {
+        setInventoryActorError(message);
+      }
+    } finally {
+      setInventoryActorSaving(false);
+    }
+  }, [inventoryActorDraftName, inventoryActorId, supabasePatch, supabasePost]);
 
   // Prevent state updates after unmount
   const isMountedRef = useRef(true);
@@ -2016,6 +2104,7 @@ export default function App() {
   const tabLabel = (key: TabId) => {
     if (key === "crew") return "Crew";
     if (key === "trackDefs") return "Tracks";
+    if (key === "inventory") return "Inventory";
     if (key === "trainingHub") return "Trainings";
     if (key === "signoffs") return "Signoffs";
     if (key === "records") return "Records";
@@ -2048,6 +2137,8 @@ export default function App() {
     historyContext?.trackName || ""
   }`;
   const isCrewSchedulesTab = activeTab === "crewSchedules";
+  const isInventoryTab = activeTab === "inventory";
+  const isWideShellTab = isCrewSchedulesTab || isInventoryTab;
   const crewScheduleDepartmentTabs = useMemo(() => {
     const seen = new Set<string>();
     const values = [{ value: "ALL", label: "All Departments" }];
@@ -2073,7 +2164,7 @@ export default function App() {
     if (!exists) setCrewScheduleDepartmentTab("ALL");
   }, [crewScheduleDepartmentTab, crewScheduleDepartmentTabs]);
 
-  const shellStyle = isCrewSchedulesTab
+  const shellStyle = isWideShellTab
     ? {
         ...S.shell,
         maxWidth: "min(1860px, calc(100vw - 16px))",
@@ -2160,7 +2251,7 @@ export default function App() {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           tabLabel={tabLabel}
-          wide={isCrewSchedulesTab}
+          wide={isWideShellTab}
           secondaryTabs={isCrewSchedulesTab ? crewScheduleDepartmentTabs : []}
           activeSecondaryTab={
             isCrewSchedulesTab ? crewScheduleDepartmentTab : undefined
@@ -2170,6 +2261,12 @@ export default function App() {
           }
           placeholderSettingEnabled={placeholderSettingEnabled}
           setPlaceholderSettingEnabled={setPlaceholderSettingEnabled}
+          inventoryActorDraftName={inventoryActorDraftName}
+          setInventoryActorDraftName={setInventoryActorDraftName}
+          inventoryActorSaving={inventoryActorSaving}
+          inventoryActorMessage={inventoryActorMessage}
+          inventoryActorError={inventoryActorError}
+          onSaveInventoryActor={saveInventoryActor}
           onImportShowCalendarPdf={importShowCalendarPdf}
           showCalendarImporting={showCalendarImporting}
           showCalendarImportMessage={showCalendarImportMessage}
@@ -2242,6 +2339,19 @@ export default function App() {
               toggleTrackActive={toggleTrackActive}
               toggleTrackShowCritical={toggleTrackShowCritical}
               updateTrackColor={updateTrackColor}
+            />
+          )}
+
+          {activeTab === "inventory" && (
+            <InventoryTab
+              S={S}
+              supabaseGet={supabaseGet}
+              supabasePost={supabasePost}
+              supabasePatch={supabasePatch}
+              supabaseDelete={supabaseDelete}
+              markUpdated={markUpdated}
+              inventoryActorId={inventoryActorId}
+              inventoryActorName={inventoryActorName}
             />
           )}
 

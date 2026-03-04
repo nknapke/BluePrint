@@ -32,6 +32,12 @@ type Props = {
   setActiveSecondaryTab?: (value: string) => void;
   placeholderSettingEnabled: boolean;
   setPlaceholderSettingEnabled: Dispatch<SetStateAction<boolean>>;
+  inventoryActorDraftName: string;
+  setInventoryActorDraftName: Dispatch<SetStateAction<string>>;
+  inventoryActorSaving: boolean;
+  inventoryActorMessage: string;
+  inventoryActorError: string;
+  onSaveInventoryActor: () => Promise<void> | void;
   onImportShowCalendarPdf: (file: File) => Promise<void> | void;
   showCalendarImporting: boolean;
   showCalendarImportMessage: string;
@@ -175,6 +181,19 @@ const SETTINGS_ACTION_STYLE = (disabled: boolean): CSSProperties => ({
   textAlign: "left",
   cursor: disabled ? "default" : "pointer",
 });
+const SETTINGS_INPUT_STYLE: CSSProperties = {
+  width: "100%",
+  marginTop: 10,
+  height: 40,
+  borderRadius: 12,
+  padding: "0 12px",
+  border: "1px solid rgba(255,255,255,0.10)",
+  background: "rgba(255,255,255,0.06)",
+  color: "rgba(255,255,255,0.92)",
+  fontSize: 13,
+  fontWeight: 700,
+  outline: "none",
+};
 const SETTINGS_STATUS_STYLE = (tone: "neutral" | "error"): CSSProperties => ({
   marginTop: 10,
   fontSize: 11,
@@ -204,6 +223,12 @@ export function AppHeader({
   setActiveSecondaryTab,
   placeholderSettingEnabled,
   setPlaceholderSettingEnabled,
+  inventoryActorDraftName,
+  setInventoryActorDraftName,
+  inventoryActorSaving,
+  inventoryActorMessage,
+  inventoryActorError,
+  onSaveInventoryActor,
   onImportShowCalendarPdf,
   showCalendarImporting,
   showCalendarImportMessage,
@@ -453,6 +478,46 @@ export function AppHeader({
               <div style={SETTINGS_TITLE_STYLE}>App Settings</div>
               <div style={SETTINGS_SUBTITLE_STYLE}>
                 Placeholder space for global BluePrint options.
+              </div>
+
+              <div style={{ ...SETTINGS_OPTION_STYLE, display: "block", cursor: "default" }}>
+                <div style={SETTINGS_OPTION_TITLE_STYLE}>Inventory User</div>
+                <div style={SETTINGS_OPTION_HELP_STYLE}>
+                  Inventory changes are attributed to this person in stock updates and audit
+                  history.
+                </div>
+                <input
+                  type="text"
+                  value={inventoryActorDraftName}
+                  onChange={(e) => setInventoryActorDraftName(e.currentTarget.value)}
+                  placeholder="Enter your name"
+                  style={SETTINGS_INPUT_STYLE}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void onSaveInventoryActor();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  style={SETTINGS_ACTION_STYLE(
+                    inventoryActorSaving || !String(inventoryActorDraftName || "").trim()
+                  )}
+                  disabled={
+                    inventoryActorSaving || !String(inventoryActorDraftName || "").trim()
+                  }
+                  onClick={() => {
+                    void onSaveInventoryActor();
+                  }}
+                >
+                  {inventoryActorSaving ? "Saving inventory user..." : "Save Inventory User"}
+                </button>
+                {inventoryActorError ? (
+                  <div style={SETTINGS_STATUS_STYLE("error")}>{inventoryActorError}</div>
+                ) : inventoryActorMessage ? (
+                  <div style={SETTINGS_STATUS_STYLE("neutral")}>{inventoryActorMessage}</div>
+                ) : null}
               </div>
 
               <label style={SETTINGS_OPTION_STYLE}>

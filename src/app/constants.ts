@@ -3,6 +3,7 @@ export const REFRESH_MS = 10000;
 export const TABS = [
   "crew",
   "trackDefs",
+  "inventory",
   "trainingHub",
   "signoffs",
   "records",
